@@ -10,13 +10,20 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -64,9 +71,36 @@ fun ScannerScreen(
 
     val scanResultMessage by viewModel.scanResultMsg.collectAsState()
     var isProcessing by remember { mutableStateOf(false) }
+    var manualInput by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
 
+    // Animasi Garis Scanner Naik Turun
+    val infiniteTransition = rememberInfiniteTransition(label = "scan_transition")
+    val scanLinePosition by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scan_line_anim"
+    )
+
+    fun processCode(qrContent: String) {
+        if (!isProcessing) {
+            isProcessing = true
+            coroutineScope.launch {
+                val status = viewModel.processQrCode(qrContent)
+                when (status) {
+                    1 -> playSuccess() // Success
+                    else -> playError() // Already Scanned or Invalid
+                }
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
+        // Lapisan Bawah: Kamera
         if (hasCameraPermission) {
             AndroidView(
                 factory = { ctx ->
@@ -87,20 +121,7 @@ fun ScannerScreen(
                                 analysis.setAnalyzer(
                                     executor,
                                     QrCodeAnalyzer { qrContent ->
-                                        if (!isProcessing) {
-                                            isProcessing = true
-                                            coroutineScope.launch {
-                                                val status = viewModel.processQrCode(qrContent)
-                                                when (status) {
-                                                    1 -> playSuccess() // Success
-                                                    else -> playError() // Already Scanned or Invalid
-                                                }
-                                                // Delay 2 seconds before allowing next scan
-                                                delay(2000)
-                                                viewModel.clearScanResult()
-                                                isProcessing = false
-                                            }
-                                        }
+                                        processCode(qrContent)
                                     }
                                 )
                             }
@@ -137,28 +158,44 @@ fun ScannerScreen(
             }
         }
 
-        // Overlay status message
-        scanResultMessage?.let { msg ->
-            val bgColor = if (msg.startsWith("BERHASIL")) Color(0xFF4CAF50) else Color(0xFFF44336)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(bgColor.copy(alpha = 0.9f))
-                    .padding(32.dp)
-                    .align(Alignment.Center)
-            ) {
-                Text(
-                    text = msg,
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
+        // Lapisan Tengah: UI Scanner Frame + Area Gelap
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val canvasWidth = size.width
+            val canvasHeight = size.height
+            val frameSize = canvasWidth * 0.7f
+            val top = (canvasHeight - frameSize) / 2
+            val left = (canvasWidth - frameSize) / 2
+            val bottom = top + frameSize
+            val right = left + frameSize
+            
+            // Background redup (scrim) menggunakan 4 kotak
+            val scrimColor = Color.Black.copy(alpha = 0.6f)
+            drawRect(color = scrimColor, topLeft = Offset(0f, 0f), size = GeometrySize(canvasWidth, top)) // Atas
+            drawRect(color = scrimColor, topLeft = Offset(0f, bottom), size = GeometrySize(canvasWidth, canvasHeight - bottom)) // Bawah
+            drawRect(color = scrimColor, topLeft = Offset(0f, top), size = GeometrySize(left, frameSize)) // Kiri
+            drawRect(color = scrimColor, topLeft = Offset(right, top), size = GeometrySize(canvasWidth - right, frameSize)) // Kanan
+
+            // Bingkai Scanner (Border Kotak Putih)
+            drawRect(
+                color = Color.White.copy(alpha = 0.8f),
+                topLeft = Offset(left, top),
+                size = GeometrySize(frameSize, frameSize),
+                style = Stroke(width = 2.dp.toPx())
+            )
+            
+            // Garis Scanner bergerak (merah/hijau)
+            if (!isProcessing) {
+                val lineY = top + (frameSize * scanLinePosition)
+                drawLine(
+                    color = Color.Green,
+                    start = Offset(left, lineY),
+                    end = Offset(right, lineY),
+                    strokeWidth = 3.dp.toPx()
                 )
             }
         }
 
-        // Top Bar
+        // Lapisan Atas: Top Bar Menu
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -169,22 +206,91 @@ fun ScannerScreen(
         ) {
             val ticketCount by viewModel.ticketCount.collectAsState()
             Text(
-                text = "Data Terdaftar: \$ticketCount",
+                text = "Data Terdaftar: $ticketCount",
                 color = Color.White,
                 fontSize = 16.sp
             )
             Button(onClick = onNavigateToManagement) {
-                Text("Database")
+                Text("Setup Database")
             }
         }
+
+        // Lapisan Atas: Notifikasi Floating Modern
+        if (scanResultMessage != null) {
+            val msg = scanResultMessage ?: ""
+            val isSuccess = msg.startsWith("BERHASIL")
+            val isAlreadyScanned = msg.startsWith("SUDAH DISCAN")
+            
+            val title = when {
+                isSuccess -> "BERHASIL SCANNED"
+                isAlreadyScanned -> "PERINGATAN!"
+                else -> "TIDAK TERDAFTAR!"
+            }
+            val bgColor = if (isSuccess) Color(0xFF4CAF50) else Color(0xFFF44336)
+            
+            AlertDialog(
+                onDismissRequest = { /* Must click button */ },
+                containerColor = bgColor,
+                titleContentColor = Color.White,
+                textContentColor = Color.White,
+                title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                text = { Text(msg, fontSize = 16.sp, fontWeight = FontWeight.Medium) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.clearScanResult()
+                            isProcessing = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = bgColor)
+                    ) {
+                        Text("Lanjut Scan", fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
         
-        // Scan Target Box Indicator
+        // Lapisan Atas: Input Manual Form di Bawah Layar
         Box(
             modifier = Modifier
-                .size(250.dp)
-                .align(Alignment.Center)
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(
+                    color = Color.Black.copy(alpha = 0.3f),
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                )
+                .padding(16.dp)
         ) {
-            // A simple visual indicator for where to scan (can be improved with canvas lines)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Jika kamera bermasalah, masukkan manual:", color = Color.White, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = manualInput,
+                        onValueChange = { manualInput = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        placeholder = { Text("Ketik kode tiket...") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White,
+                            focusedTextColor = Color.Black,
+                            unfocusedTextColor = Color.Black
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (manualInput.isNotBlank()) {
+                                processCode(manualInput)
+                                manualInput = ""
+                            }
+                        },
+                        enabled = !isProcessing
+                    ) {
+                        Text("Kirim")
+                    }
+                }
+            }
         }
     }
 }

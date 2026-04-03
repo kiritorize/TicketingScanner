@@ -18,22 +18,61 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
     private val _scanResultMsg = MutableStateFlow<String?>(null)
     val scanResultMsg: StateFlow<String?> = _scanResultMsg
 
+    private val _ticketList = MutableStateFlow<List<Ticket>>(emptyList())
+    val ticketList: StateFlow<List<Ticket>> = _ticketList
+
     init {
         refreshTicketCount()
     }
 
     private fun refreshTicketCount() {
         viewModelScope.launch {
-            _ticketCount.value = ticketDao.getTicketCount()
+            val tickets = ticketDao.getAllTickets()
+            _ticketCount.value = tickets.size
+            _ticketList.value = tickets
         }
     }
 
-    fun addTicketsFromText(text: String, separator: String = "\n") {
+    fun addTicketsFromText(text: String): Boolean {
+        val lines = text.split(Regex("[\n\r]+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            
+        if (lines.isEmpty()) return false
+        
+        val tickets = mutableListOf<Ticket>()
+        for (line in lines) {
+            val parts = line.split(",", limit = 2)
+            if (parts.size != 2) return false
+            
+            val qr = parts[0].trim()
+            val type = parts[1].trim()
+            
+            if (qr.isBlank() || type.isBlank()) return false
+            
+            tickets.add(Ticket(qrContent = qr, ticketType = type, isScanned = false))
+        }
+        
         viewModelScope.launch {
-            val lines = text.split(separator).map { it.trim() }.filter { it.isNotEmpty() }
-            val tickets = lines.map { Ticket(qrContent = it, isScanned = false) }
             ticketDao.insertTickets(tickets)
             refreshTicketCount()
+        }
+        return true
+    }
+
+    fun importCsvFromUri(uri: android.net.Uri, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val inputStream = getApplication<Application>().contentResolver.openInputStream(uri)
+                    inputStream?.bufferedReader()?.use { it.readText() } ?: ""
+                }
+                val success = addTicketsFromText(text)
+                onResult(success)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(false)
+            }
         }
     }
 
@@ -54,15 +93,16 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
         
         return if (ticket != null) {
             if (ticket.isScanned) {
-                _scanResultMsg.value = "SUDAH DISCAN: \$qrContent"
+                _scanResultMsg.value = "SUDAH DISCAN:\n$qrContent\nTipe: ${ticket.ticketType}"
                 2
             } else {
                 ticketDao.markAsScanned(qrContent)
-                _scanResultMsg.value = "BERHASIL: \$qrContent"
+                _scanResultMsg.value = "BERHASIL:\n$qrContent\nTipe: ${ticket.ticketType}"
+                refreshTicketCount()
                 1
             }
         } else {
-            _scanResultMsg.value = "TIDAK TERDAFTAR: \$qrContent"
+            _scanResultMsg.value = "TIDAK TERDAFTAR:\n$qrContent"
             3
         }
     }

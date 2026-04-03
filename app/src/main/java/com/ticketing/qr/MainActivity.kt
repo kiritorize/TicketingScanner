@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.ticketing.qr.ui.DatabaseScreen
 import com.ticketing.qr.ui.ManagementScreen
 import com.ticketing.qr.ui.ScannerScreen
 import com.ticketing.qr.utils.SoundManager
@@ -34,17 +35,26 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
 
-                    NavHost(navController = navController, startDestination = "scanner") {
+                    NavHost(navController = navController, startDestination = "management") {
                         composable("scanner") {
                             ScannerScreen(
                                 viewModel = viewModel,
                                 playSuccess = { soundManager.playSuccess() },
                                 playError = { soundManager.playError() },
-                                onNavigateToManagement = { navController.navigate("management") }
+                                onNavigateToManagement = { navController.navigate("management") } // Let user go back if needed
                             )
                         }
                         composable("management") {
                             ManagementScreen(
+                                viewModel = viewModel,
+                                onNavigateToScanner = { navController.navigate("scanner") },
+                                onNavigateToDatabase = { navController.navigate("database") },
+                                playSuccess = { soundManager.playSuccess() },
+                                playError = { soundManager.playError() }
+                            )
+                        }
+                        composable("database") {
+                            DatabaseScreen(
                                 viewModel = viewModel,
                                 onNavigateBack = { navController.popBackStack() }
                             )

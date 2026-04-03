@@ -30,8 +30,11 @@ class SoundManager(context: Context) {
         
         try {
             // Load sounds. Make sure these raw files exist.
-            soundSuccessId = soundPool.load(context, R.raw.sound_success, 1)
-            soundErrorId = soundPool.load(context, R.raw.sound_error, 1)
+            val successResId = context.resources.getIdentifier("sound_success", "raw", context.packageName)
+            if (successResId != 0) soundSuccessId = soundPool.load(context, successResId, 1)
+            
+            val errorResId = context.resources.getIdentifier("sound_error", "raw", context.packageName)
+            if (errorResId != 0) soundErrorId = soundPool.load(context, errorResId, 1)
         } catch (e: Exception) {
             e.printStackTrace()
         }

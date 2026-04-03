@@ -1,0 +1,7 @@
+com.ticketing.qr
+raw sound_error
+raw sound_success
+string app_name
+style Theme_TicketingScanner
+xml backup_rules
+xml data_extraction_rules

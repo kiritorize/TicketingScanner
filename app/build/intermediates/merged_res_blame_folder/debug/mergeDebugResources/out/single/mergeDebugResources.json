@@ -1,0 +1,18 @@
+[
+    {
+        "merged": "com.ticketing.qr.app-debug-64:/raw_sound_success.mp3.flat",
+        "source": "com.ticketing.qr.app-main-66:/raw/sound_success.mp3"
+    },
+    {
+        "merged": "com.ticketing.qr.app-debug-64:/raw_sound_error.mp3.flat",
+        "source": "com.ticketing.qr.app-main-66:/raw/sound_error.mp3"
+    },
+    {
+        "merged": "com.ticketing.qr.app-debug-64:/xml_backup_rules.xml.flat",
+        "source": "com.ticketing.qr.app-main-66:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.ticketing.qr.app-debug-64:/xml_data_extraction_rules.xml.flat",
+        "source": "com.ticketing.qr.app-main-66:/xml/data_extraction_rules.xml"
+    }
+]

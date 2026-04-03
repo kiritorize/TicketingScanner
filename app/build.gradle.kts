@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -40,9 +41,6 @@ android {
     buildFeatures {
         compose = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.9"
-    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -64,19 +62,19 @@ dependencies {
 
     // CameraX
     val cameraxVersion = "1.3.1"
-    implementation("androidx.camera:camera-core:\${cameraxVersion}")
-    implementation("androidx.camera:camera-camera2:\${cameraxVersion}")
-    implementation("androidx.camera:camera-lifecycle:\${cameraxVersion}")
-    implementation("androidx.camera:camera-view:\${cameraxVersion}")
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
 
     // ML Kit Barcode Scanning
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
     // Room Database
-    val roomVersion = "2.6.1"
-    implementation("androidx.room:room-runtime:\${roomVersion}")
-    implementation("androidx.room:room-ktx:\${roomVersion}")
-    ksp("androidx.room:room-compiler:\${roomVersion}")
+    val roomVersion = "2.7.0"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
 
     // Tests
     testImplementation("junit:junit:4.13.2")
