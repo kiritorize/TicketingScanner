@@ -2,11 +2,13 @@ package com.ticketing.qr.`data`
 
 import androidx.room.EntityInsertAdapter
 import androidx.room.RoomDatabase
+import androidx.room.util.appendPlaceholders
 import androidx.room.util.getColumnIndexOrThrow
 import androidx.room.util.performSuspending
 import androidx.sqlite.SQLiteStatement
 import kotlin.Boolean
 import kotlin.Int
+import kotlin.Long
 import kotlin.String
 import kotlin.Suppress
 import kotlin.Unit
@@ -14,6 +16,7 @@ import kotlin.collections.List
 import kotlin.collections.MutableList
 import kotlin.collections.mutableListOf
 import kotlin.reflect.KClass
+import kotlin.text.StringBuilder
 
 @Suppress(names = ["UNCHECKED_CAST", "DEPRECATION", "REDUNDANT_PROJECTION", "REMOVAL"])
 public class TicketDao_Impl(
@@ -26,7 +29,7 @@ public class TicketDao_Impl(
     this.__db = __db
     this.__insertAdapterOfTicket = object : EntityInsertAdapter<Ticket>() {
       protected override fun createQuery(): String =
-          "INSERT OR IGNORE INTO `tickets` (`id`,`qrContent`,`ticketType`,`isScanned`) VALUES (nullif(?, 0),?,?,?)"
+          "INSERT OR IGNORE INTO `tickets` (`id`,`qrContent`,`ticketType`,`isScanned`,`createdAt`) VALUES (nullif(?, 0),?,?,?,?)"
 
       protected override fun bind(statement: SQLiteStatement, entity: Ticket) {
         statement.bindLong(1, entity.id.toLong())
@@ -34,6 +37,7 @@ public class TicketDao_Impl(
         statement.bindText(3, entity.ticketType)
         val _tmp: Int = if (entity.isScanned) 1 else 0
         statement.bindLong(4, _tmp.toLong())
+        statement.bindLong(5, entity.createdAt)
       }
     }
   }
@@ -52,6 +56,7 @@ public class TicketDao_Impl(
         val _columnIndexOfQrContent: Int = getColumnIndexOrThrow(_stmt, "qrContent")
         val _columnIndexOfTicketType: Int = getColumnIndexOrThrow(_stmt, "ticketType")
         val _columnIndexOfIsScanned: Int = getColumnIndexOrThrow(_stmt, "isScanned")
+        val _columnIndexOfCreatedAt: Int = getColumnIndexOrThrow(_stmt, "createdAt")
         val _result: MutableList<Ticket> = mutableListOf()
         while (_stmt.step()) {
           val _item: Ticket
@@ -65,7 +70,9 @@ public class TicketDao_Impl(
           val _tmp: Int
           _tmp = _stmt.getLong(_columnIndexOfIsScanned).toInt()
           _tmpIsScanned = _tmp != 0
-          _item = Ticket(_tmpId,_tmpQrContent,_tmpTicketType,_tmpIsScanned)
+          val _tmpCreatedAt: Long
+          _tmpCreatedAt = _stmt.getLong(_columnIndexOfCreatedAt)
+          _item = Ticket(_tmpId,_tmpQrContent,_tmpTicketType,_tmpIsScanned,_tmpCreatedAt)
           _result.add(_item)
         }
         _result
@@ -86,6 +93,7 @@ public class TicketDao_Impl(
         val _columnIndexOfQrContent: Int = getColumnIndexOrThrow(_stmt, "qrContent")
         val _columnIndexOfTicketType: Int = getColumnIndexOrThrow(_stmt, "ticketType")
         val _columnIndexOfIsScanned: Int = getColumnIndexOrThrow(_stmt, "isScanned")
+        val _columnIndexOfCreatedAt: Int = getColumnIndexOrThrow(_stmt, "createdAt")
         val _result: Ticket?
         if (_stmt.step()) {
           val _tmpId: Int
@@ -98,7 +106,9 @@ public class TicketDao_Impl(
           val _tmp: Int
           _tmp = _stmt.getLong(_columnIndexOfIsScanned).toInt()
           _tmpIsScanned = _tmp != 0
-          _result = Ticket(_tmpId,_tmpQrContent,_tmpTicketType,_tmpIsScanned)
+          val _tmpCreatedAt: Long
+          _tmpCreatedAt = _stmt.getLong(_columnIndexOfCreatedAt)
+          _result = Ticket(_tmpId,_tmpQrContent,_tmpTicketType,_tmpIsScanned,_tmpCreatedAt)
         } else {
           _result = null
         }
@@ -148,6 +158,66 @@ public class TicketDao_Impl(
     return performSuspending(__db, false, true) { _connection ->
       val _stmt: SQLiteStatement = _connection.prepare(_sql)
       try {
+        _stmt.step()
+      } finally {
+        _stmt.close()
+      }
+    }
+  }
+
+  public override suspend fun resetSequence() {
+    val _sql: String = "DELETE FROM sqlite_sequence WHERE name = 'tickets'"
+    return performSuspending(__db, false, true) { _connection ->
+      val _stmt: SQLiteStatement = _connection.prepare(_sql)
+      try {
+        _stmt.step()
+      } finally {
+        _stmt.close()
+      }
+    }
+  }
+
+  public override suspend fun deleteTickets(ids: List<Int>) {
+    val _stringBuilder: StringBuilder = StringBuilder()
+    _stringBuilder.append("DELETE FROM tickets WHERE id IN (")
+    val _inputSize: Int = ids.size
+    appendPlaceholders(_stringBuilder, _inputSize)
+    _stringBuilder.append(")")
+    val _sql: String = _stringBuilder.toString()
+    return performSuspending(__db, false, true) { _connection ->
+      val _stmt: SQLiteStatement = _connection.prepare(_sql)
+      try {
+        var _argIndex: Int = 1
+        for (_item: Int in ids) {
+          _stmt.bindLong(_argIndex, _item.toLong())
+          _argIndex++
+        }
+        _stmt.step()
+      } finally {
+        _stmt.close()
+      }
+    }
+  }
+
+  public override suspend fun updateTicket(
+    id: Int,
+    newQr: String,
+    newType: String,
+    updatedAt: Long,
+  ) {
+    val _sql: String =
+        "UPDATE tickets SET qrContent = ?, ticketType = ?, createdAt = ? WHERE id = ?"
+    return performSuspending(__db, false, true) { _connection ->
+      val _stmt: SQLiteStatement = _connection.prepare(_sql)
+      try {
+        var _argIndex: Int = 1
+        _stmt.bindText(_argIndex, newQr)
+        _argIndex = 2
+        _stmt.bindText(_argIndex, newType)
+        _argIndex = 3
+        _stmt.bindLong(_argIndex, updatedAt)
+        _argIndex = 4
+        _stmt.bindLong(_argIndex, id.toLong())
         _stmt.step()
       } finally {
         _stmt.close()

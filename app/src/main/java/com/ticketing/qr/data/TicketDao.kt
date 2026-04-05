@@ -6,7 +6,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
-
 import androidx.room.Index
 
 @Entity(tableName = "tickets", indices = [Index(value = ["qrContent"], unique = true)])
@@ -14,7 +13,8 @@ data class Ticket(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val qrContent: String,
     val ticketType: String,
-    val isScanned: Boolean = false
+    val isScanned: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -36,4 +36,13 @@ interface TicketDao {
 
     @Query("DELETE FROM tickets")
     suspend fun deleteAllTickets()
+
+    @Query("DELETE FROM sqlite_sequence WHERE name = 'tickets'")
+    suspend fun resetSequence()
+
+    @Query("DELETE FROM tickets WHERE id IN (:ids)")
+    suspend fun deleteTickets(ids: List<Int>)
+
+    @Query("UPDATE tickets SET qrContent = :newQr, ticketType = :newType, createdAt = :updatedAt WHERE id = :id")
+    suspend fun updateTicket(id: Int, newQr: String, newType: String, updatedAt: Long)
 }

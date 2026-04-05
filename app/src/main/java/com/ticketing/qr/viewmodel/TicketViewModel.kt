@@ -79,8 +79,66 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
     fun clearAllTickets() {
         viewModelScope.launch {
             ticketDao.deleteAllTickets()
+            try {
+                ticketDao.resetSequence()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             refreshTicketCount()
         }
+    }
+
+    fun deleteTickets(ids: List<Int>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            ticketDao.deleteTickets(ids)
+            refreshTicketCount()
+        }
+    }
+
+    fun updateTicket(id: Int, newQr: String, newType: String) {
+        viewModelScope.launch {
+            try {
+                ticketDao.updateTicket(id, newQr, newType, System.currentTimeMillis())
+                refreshTicketCount()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun addTicketsFromTwoBoxes(codesText: String, categoriesText: String): Pair<Boolean, String> {
+        val codes = codesText.split("\n")
+        val cats = categoriesText.split("\n")
+
+        val codeLines = codes.dropLastWhile { it.isEmpty() }
+        val catLines = cats.dropLastWhile { it.isEmpty() }
+
+        if (codeLines.size != catLines.size) {
+            return Pair(false, "Jumlah baris Kode (${codeLines.size}) berbeda dgn Kategori (${catLines.size})!")
+        }
+
+        if (codeLines.isEmpty()) return Pair(false, "Teks kosong.")
+
+        val tickets = mutableListOf<Ticket>()
+        for (i in codeLines.indices) {
+            val code = codeLines[i].trim()
+            val cat = catLines[i].trim()
+
+            if (code.isBlank() && cat.isBlank()) continue
+            if (code.isBlank()) return Pair(false, "Baris ${i + 1}: Kode kosong!")
+            if (cat.isBlank()) return Pair(false, "Baris ${i + 1}: Kategori kosong!")
+
+            tickets.add(Ticket(qrContent = code, ticketType = cat, isScanned = false))
+        }
+
+        if (tickets.isEmpty()) return Pair(false, "Tidak ada data tiket valid.")
+
+        viewModelScope.launch {
+            ticketDao.insertTickets(tickets)
+            refreshTicketCount()
+        }
+        return Pair(true, "Ditambahkan!")
     }
 
     fun clearScanResult() {
@@ -104,6 +162,30 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
         } else {
             _scanResultMsg.value = "TIDAK TERDAFTAR:\n$qrContent"
             3
+        }
+    }
+
+    fun exportDataToCsvUri(uri: android.net.Uri, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val tickets = ticketDao.getAllTickets()
+                    val outputStream = getApplication<Application>().contentResolver.openOutputStream(uri)
+                    outputStream?.bufferedWriter()?.use { writer ->
+                        writer.write("ID,Kode QR,Tipe Tiket,Status Scan,Waktu Ditambahkan\n")
+                        val dateFormat = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault())
+                        tickets.forEach { ticket ->
+                            val dateStr = dateFormat.format(java.util.Date(ticket.createdAt))
+                            val scanStr = if (ticket.isScanned) "Sudah" else "Belum"
+                            writer.write("${ticket.id},\"${ticket.qrContent}\",\"${ticket.ticketType}\",\"$scanStr\",\"$dateStr\"\n")
+                        }
+                    }
+                }
+                onResult(true)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onResult(false)
+            }
         }
     }
 }

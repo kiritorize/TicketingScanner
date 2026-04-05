@@ -35,13 +35,19 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
 
-                    NavHost(navController = navController, startDestination = "management") {
+                    NavHost(navController = navController, startDestination = "mainmenu") {
+                        composable("mainmenu") {
+                            com.ticketing.qr.ui.MainMenuScreen(
+                                onNavigateToScanner = { navController.navigate("scanner") },
+                                onNavigateToManagement = { navController.navigate("management") }
+                            )
+                        }
                         composable("scanner") {
                             ScannerScreen(
                                 viewModel = viewModel,
                                 playSuccess = { soundManager.playSuccess() },
                                 playError = { soundManager.playError() },
-                                onNavigateToManagement = { navController.navigate("management") } // Let user go back if needed
+                                onNavigateToManagement = { navController.navigate("mainmenu") { popUpTo(0) } } // Back to home
                             )
                         }
                         composable("management") {
