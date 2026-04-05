@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.ticketing.qr.app-mergeDebugResources-62:/values-zh-rHK/values-zh-rHK.xml",
+            "outputFile": "com.ticketing.qr.app-mergeDebugResources-63:/values-zh-rHK/values-zh-rHK.xml",
             "map": [
                 {
                     "source": "C:\\Users\\ASUS\\.gradle\\caches\\9.2.1\\transforms\\ee8a24f0886bbaee497a976859cd8b37\\workspace\\transformed\\material3-release\\res\\values-zh-rHK\\values-zh-rHK.xml",

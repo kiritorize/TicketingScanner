@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Index
+import androidx.room.Transaction
 
 @Entity(tableName = "tickets", indices = [Index(value = ["qrContent"], unique = true)])
 data class Ticket(
@@ -14,7 +15,9 @@ data class Ticket(
     val qrContent: String,
     val ticketType: String,
     val isScanned: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val scannedAt: Long? = null,
+    val isModified: Boolean = false
 )
 
 @Dao
@@ -31,8 +34,8 @@ interface TicketDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTickets(tickets: List<Ticket>)
 
-    @Query("UPDATE tickets SET isScanned = 1 WHERE qrContent = :qrContent")
-    suspend fun markAsScanned(qrContent: String)
+    @Query("UPDATE tickets SET isScanned = 1, scannedAt = :scannedAt WHERE qrContent = :qrContent")
+    suspend fun markAsScanned(qrContent: String, scannedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM tickets")
     suspend fun deleteAllTickets()
@@ -43,6 +46,21 @@ interface TicketDao {
     @Query("DELETE FROM tickets WHERE id IN (:ids)")
     suspend fun deleteTickets(ids: List<Int>)
 
-    @Query("UPDATE tickets SET qrContent = :newQr, ticketType = :newType, createdAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE tickets SET qrContent = :newQr, ticketType = :newType, createdAt = :updatedAt, isModified = 1 WHERE id = :id")
     suspend fun updateTicket(id: Int, newQr: String, newType: String, updatedAt: Long)
+
+    @Query("SELECT qrContent FROM tickets WHERE qrContent IN (:codes)")
+    suspend fun getExistingCodes(codes: List<String>): List<String>
+
+    /**
+     * Re-assigns all ticket IDs to be sequential (1, 2, 3, ..., N) with no gaps.
+     * Call this after any deletion to keep IDs contiguous.
+     */
+    @Transaction
+    suspend fun reassignIds() {
+        val tickets = getAllTickets()
+        deleteAllTickets()
+        try { resetSequence() } catch (_: Exception) {}
+        insertTickets(tickets.map { it.copy(id = 0) })
+    }
 }

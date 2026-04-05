@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.ticketing.qr.app-mergeDebugResources-62:/values-ms/values-ms.xml",
+            "outputFile": "com.ticketing.qr.app-mergeDebugResources-63:/values-ms/values-ms.xml",
             "map": [
                 {
                     "source": "C:\\Users\\ASUS\\.gradle\\caches\\9.2.1\\transforms\\8d7448a0cc36c503a01b1ecf38af50a3\\workspace\\transformed\\play-services-base-18.1.0\\res\\values-ms\\values.xml",

@@ -3,25 +3,234 @@ package com.ticketing.qr.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ticketing.qr.viewmodel.TicketViewModel
+import kotlinx.coroutines.launch
+
+/**
+ * Reusable input box with row numbers, scrollable content, scrollbar, and clear button.
+ * Uses onTextLayout to get exact line positions from the rendering engine.
+ */
+@Composable
+private fun NumberedInputBox(
+    label: String,
+    placeholder: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val lines = value.split("\n")
+    val lineCount = lines.size
+    val scrollState = rememberScrollState()
+
+    // Build the number text: one number per line, matching TextField lines
+    val numberText = (1..lineCount).joinToString("\n") { "$it" }
+
+    // Shared base style ensures identical vertical positioning for numbers & input
+    val baseLineStyle = TextStyle(
+        fontSize = 14.sp,
+        lineHeight = 24.sp,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.Both
+        )
+    )
+
+    // Capture the actual text layout result from BasicTextField
+    var textLayoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+
+    val topPadDp = 8.dp
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(160.dp),
+        shape = MaterialTheme.shapes.medium,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column {
+            // Header row — taller than input rows
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "No",
+                    modifier = Modifier.width(32.dp),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Divider(
+                    modifier = Modifier.height(20.dp).width(1.dp),
+                    color = Color.Gray.copy(alpha = 0.5f)
+                )
+                Text(
+                    label,
+                    modifier = Modifier.weight(1f).padding(start = 8.dp),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                // Clear button — only show when box has content
+                if (value.isNotEmpty()) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Kosongkan",
+                        modifier = Modifier
+                            .padding(end = 6.dp)
+                            .size(18.dp)
+                            .clickable { onClear() },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+            // Content area: grid lines + scrollable content + scrollbar
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .drawWithContent {
+                        val strokeWidth = 1.dp.toPx()
+                        val scrollY = scrollState.value.toFloat()
+                        val numColW = 32.dp.toPx()
+                        val topPad = topPadDp.toPx()
+
+                        // --- Draw grid lines BEHIND content ---
+
+                        // Vertical line after number column
+                        drawLine(
+                            Color.LightGray.copy(alpha = 0.5f),
+                            start = Offset(numColW, 0f),
+                            end = Offset(numColW, size.height),
+                            strokeWidth = strokeWidth
+                        )
+
+                        // Horizontal lines — based on ACTUAL text layout positions
+                        val layout = textLayoutResult
+                        if (layout != null && layout.lineCount > 1) {
+                            for (i in 0 until layout.lineCount - 1) {
+                                // getLineBottom gives the exact bottom of line i
+                                // relative to the TextField content area.
+                                // Add topPad because TextField has padding(top = 8.dp)
+                                val viewY = topPad + layout.getLineBottom(i) - scrollY
+                                if (viewY > size.height) break
+                                if (viewY > 0f) {
+                                    drawLine(
+                                        Color.LightGray.copy(alpha = 0.5f),
+                                        start = Offset(0f, viewY),
+                                        end = Offset(size.width, viewY),
+                                        strokeWidth = strokeWidth
+                                    )
+                                }
+                            }
+                        }
+
+                        // --- Draw actual composable content ---
+                        drawContent()
+
+                        // --- Draw scrollbar ON TOP ---
+                        val maxScroll = scrollState.maxValue.toFloat()
+                        if (maxScroll > 0f) {
+                            val viewH = size.height
+                            val contentH = viewH + maxScroll
+                            val thumbH = (viewH / contentH * viewH).coerceAtLeast(20.dp.toPx())
+                            val thumbY = (scrollY / maxScroll) * (viewH - thumbH)
+                            val barW = 4.dp.toPx()
+                            val barX = size.width - barW - 2.dp.toPx()
+                            drawRoundRect(
+                                color = Color.Gray.copy(alpha = 0.4f),
+                                topLeft = Offset(barX, thumbY),
+                                size = Size(barW, thumbH),
+                                cornerRadius = CornerRadius(barW / 2f)
+                            )
+                        }
+                    }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState)
+                ) {
+                    // Row numbers — uses identical base style for perfect vertical alignment
+                    Text(
+                        text = numberText,
+                        modifier = Modifier
+                            .width(32.dp)
+                            .padding(top = topPadDp, bottom = 8.dp),
+                        style = baseLineStyle.copy(
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
+                    )
+
+                    // Text input field — uses identical base style
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 4.dp, end = 8.dp, top = topPadDp, bottom = 8.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        textStyle = baseLineStyle.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        onTextLayout = { result ->
+                            textLayoutResult = result
+                        },
+                        decorationBox = { innerTextField ->
+                            if (value.isEmpty()) {
+                                Text(
+                                    placeholder,
+                                    style = baseLineStyle.copy(
+                                        color = Color.LightGray
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,10 +243,15 @@ fun ManagementScreen(
 ) {
     var codeInput by remember { mutableStateOf("") }
     var catInput by remember { mutableStateOf("") }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
     var showSuccessAdd by remember { mutableStateOf(false) }
     val ticketCount by viewModel.ticketCount.collectAsState()
     val ticketList by viewModel.ticketList.collectAsState()
+
+    // For duplicate error popup
+    var showDuplicateDialog by remember { mutableStateOf(false) }
+    var duplicateErrorMessage by remember { mutableStateOf("") }
+
+    val scope = rememberCoroutineScope()
 
     val csvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -130,7 +344,7 @@ fun ManagementScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "Input / Paste Manual (Kode & Kategori) tiap baris:",
+                    text = "Input / Paste Manual tiap baris:",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.fillMaxWidth()
@@ -138,152 +352,43 @@ fun ManagementScreen(
                 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val codeLines = codeInput.split("\n")
-                val catLines = catInput.split("\n")
-                val rowCount = maxOf(codeLines.size, catLines.size)
-                
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp)
-                        .padding(bottom = 8.dp),
-                    shape = MaterialTheme.shapes.medium,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("No.", modifier = Modifier.width(32.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.Gray.copy(alpha=0.5f))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Kode Unik", modifier = Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.Gray.copy(alpha=0.5f))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Kategori", modifier = Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                        
-                        Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                // Box 1: Kode Unik
+                NumberedInputBox(
+                    label = "Kode Unik",
+                    placeholder = "Ketik / paste kode unik tiap baris...",
+                    value = codeInput,
+                    onValueChange = { codeInput = it },
+                    onClear = { codeInput = "" }
+                )
 
-                        Box(modifier = Modifier.weight(1f)) {
-                            // Vertical and horizontal lines background
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .drawBehind {
-                                        val strokeWidth = 1.dp.toPx()
-                                        // A fixed size of 24.sp.toPx() ensures an accurate map to line heights
-                                        val yLineHeight = 24.sp.toPx()
-                                        var y = yLineHeight
-                                        while (y <= size.height + yLineHeight) {
-                                            drawLine(
-                                                color = Color.LightGray.copy(alpha = 0.5f),
-                                                start = Offset(0f, y),
-                                                end = Offset(size.width, y),
-                                                strokeWidth = strokeWidth
-                                            )
-                                            y += yLineHeight
-                                        }
+                Spacer(modifier = Modifier.height(12.dp))
 
-                                        // Draw vertical lines to match columns
-                                        val noWidth = 32.dp.toPx() + 8.dp.toPx() // Based on padding
-                                        val divider1X = noWidth
-                                        val middleWidth = (size.width - noWidth) / 2f
-                                        val divider2X = noWidth + middleWidth
+                // Box 2: Kategori
+                NumberedInputBox(
+                    label = "Kategori",
+                    placeholder = "Ketik / paste kategori tiap baris...",
+                    value = catInput,
+                    onValueChange = { catInput = it },
+                    onClear = { catInput = "" }
+                )
 
-                                        drawLine(
-                                            color = Color.LightGray.copy(alpha = 0.5f),
-                                            start = Offset(divider1X, 0f),
-                                            end = Offset(divider1X, size.height),
-                                            strokeWidth = strokeWidth
-                                        )
-                                        
-                                        drawLine(
-                                            color = Color.LightGray.copy(alpha = 0.5f),
-                                            start = Offset(divider2X, 0f),
-                                            end = Offset(divider2X, size.height),
-                                            strokeWidth = strokeWidth
-                                        )
-                                    }
-                            )
-                            
-                            // Input Area
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(8.dp)
-                            ) {
-                                Column(modifier = Modifier.width(32.dp)) {
-                                    for (i in 1..rowCount) {
-                                        val cLine = codeLines.getOrNull(i - 1)?.isNotBlank() == true
-                                        val kLine = catLines.getOrNull(i - 1)?.isNotBlank() == true
-                                        if (cLine || kLine) {
-                                            Text("$i", fontSize = 14.sp, color = androidx.compose.ui.graphics.Color.Gray, lineHeight = 24.sp)
-                                        } else {
-                                            Text(" ", fontSize = 14.sp, lineHeight = 24.sp)
-                                        }
-                                    }
-                                }
-                                
-                                Spacer(modifier = Modifier.width(10.dp))
-                                
-                                androidx.compose.foundation.text.BasicTextField(
-                                    value = codeInput,
-                                    onValueChange = { codeInput = it },
-                                    modifier = Modifier.weight(1f).padding(end = 4.dp),
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 24.sp),
-                                    decorationBox = { innerTextField ->
-                                        if (codeInput.isEmpty()) {
-                                            Text("Paste Kode...", color = androidx.compose.ui.graphics.Color.LightGray, fontSize = 14.sp, lineHeight = 24.sp)
-                                        }
-                                        innerTextField()
-                                    }
-                                )
-                                
-                                Spacer(modifier = Modifier.width(10.dp))
-
-                                androidx.compose.foundation.text.BasicTextField(
-                                    value = catInput,
-                                    onValueChange = { catInput = it },
-                                    modifier = Modifier.weight(1f).padding(start = 4.dp),
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 24.sp),
-                                    decorationBox = { innerTextField ->
-                                        if (catInput.isEmpty()) {
-                                            Text("Paste Kategori...", color = androidx.compose.ui.graphics.Color.LightGray, fontSize = 14.sp, lineHeight = 24.sp)
-                                        }
-                                        innerTextField()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (errorMsg != null) {
-                    Text(
-                        text = errorMsg ?: "",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.Start),
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
                     onClick = {
-                        errorMsg = null
-                        if (codeInput.isNotBlank() || catInput.isNotBlank()) {
-                            val result = viewModel.addTicketsFromTwoBoxes(codeInput, catInput)
-                            if (result.first) {
-                                playSuccess()
-                                codeInput = ""
-                                catInput = ""
-                                showSuccessAdd = true
-                            } else {
-                                playError()
-                                errorMsg = result.second
+                        scope.launch {
+                            if (codeInput.isNotBlank() || catInput.isNotBlank()) {
+                                val result = viewModel.addTicketsFromTwoBoxes(codeInput, catInput)
+                                if (result.first) {
+                                    playSuccess()
+                                    codeInput = ""
+                                    catInput = ""
+                                    showSuccessAdd = true
+                                } else {
+                                    playError()
+                                    duplicateErrorMessage = result.second
+                                    showDuplicateDialog = true
+                                }
                             }
                         }
                     },
@@ -320,5 +425,40 @@ fun ManagementScreen(
                 Spacer(modifier = Modifier.height(80.dp)) // Extra space for FAB
             }
         }
+    }
+
+    // Duplicate error popup dialog
+    if (showDuplicateDialog) {
+        AlertDialog(
+            onDismissRequest = { showDuplicateDialog = false },
+            title = {
+                Text(
+                    text = "⚠️ Gagal Menambahkan",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = duplicateErrorMessage,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Tidak ada kode yang ditambahkan. Perbaiki data duplikat terlebih dahulu.",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showDuplicateDialog = false }) {
+                    Text("Mengerti")
+                }
+            }
+        )
     }
 }

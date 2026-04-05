@@ -30,13 +30,13 @@ public class AppDatabase_Impl : AppDatabase() {
   }
 
   protected override fun createOpenDelegate(): RoomOpenDelegate {
-    val _openDelegate: RoomOpenDelegate = object : RoomOpenDelegate(4,
-        "3ee83ff18b8601184a64a7d0954b51fd", "adf82f48373aa24075363bd50195fa0f") {
+    val _openDelegate: RoomOpenDelegate = object : RoomOpenDelegate(6,
+        "f361e913c1aa42dab425f61a0422da30", "b55ea60e21e5ea1960df67b607a6d59c") {
       public override fun createAllTables(connection: SQLiteConnection) {
-        connection.execSQL("CREATE TABLE IF NOT EXISTS `tickets` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `qrContent` TEXT NOT NULL, `ticketType` TEXT NOT NULL, `isScanned` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL)")
+        connection.execSQL("CREATE TABLE IF NOT EXISTS `tickets` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `qrContent` TEXT NOT NULL, `ticketType` TEXT NOT NULL, `isScanned` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `scannedAt` INTEGER, `isModified` INTEGER NOT NULL)")
         connection.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_tickets_qrContent` ON `tickets` (`qrContent`)")
         connection.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
-        connection.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3ee83ff18b8601184a64a7d0954b51fd')")
+        connection.execSQL("INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f361e913c1aa42dab425f61a0422da30')")
       }
 
       public override fun dropAllTables(connection: SQLiteConnection) {
@@ -69,6 +69,10 @@ public class AppDatabase_Impl : AppDatabase() {
         _columnsTickets.put("isScanned", TableInfo.Column("isScanned", "INTEGER", true, 0, null,
             TableInfo.CREATED_FROM_ENTITY))
         _columnsTickets.put("createdAt", TableInfo.Column("createdAt", "INTEGER", true, 0, null,
+            TableInfo.CREATED_FROM_ENTITY))
+        _columnsTickets.put("scannedAt", TableInfo.Column("scannedAt", "INTEGER", false, 0, null,
+            TableInfo.CREATED_FROM_ENTITY))
+        _columnsTickets.put("isModified", TableInfo.Column("isModified", "INTEGER", true, 0, null,
             TableInfo.CREATED_FROM_ENTITY))
         val _foreignKeysTickets: MutableSet<TableInfo.ForeignKey> = mutableSetOf()
         val _indicesTickets: MutableSet<TableInfo.Index> = mutableSetOf()

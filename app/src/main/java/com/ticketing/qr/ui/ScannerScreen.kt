@@ -261,7 +261,7 @@ fun ScannerScreen(
                 .padding(16.dp)
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Jika kamera bermasalah, masukkan manual:", color = Color.White, fontSize = 14.sp)
+                Text("Jika kamera bermasalah, ketikkan manual:", color = Color.White, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
@@ -269,7 +269,7 @@ fun ScannerScreen(
                         onValueChange = { manualInput = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("Ketik kode tiket...") },
+                        placeholder = { Text("Ketik kode tiket....") },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = Color.White,
                             unfocusedContainerColor = Color.White,

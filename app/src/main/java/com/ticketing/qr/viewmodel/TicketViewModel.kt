@@ -92,6 +92,7 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
         if (ids.isEmpty()) return
         viewModelScope.launch {
             ticketDao.deleteTickets(ids)
+            ticketDao.reassignIds()
             refreshTicketCount()
         }
     }
@@ -107,7 +108,7 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun addTicketsFromTwoBoxes(codesText: String, categoriesText: String): Pair<Boolean, String> {
+    suspend fun addTicketsFromTwoBoxes(codesText: String, categoriesText: String): Pair<Boolean, String> {
         val codes = codesText.split("\n")
         val cats = categoriesText.split("\n")
 
@@ -120,24 +121,60 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
 
         if (codeLines.isEmpty()) return Pair(false, "Teks kosong.")
 
-        val tickets = mutableListOf<Ticket>()
+        // --- Phase 1: Check for empty rows (collect ALL errors) ---
+        val emptyRowErrors = mutableListOf<String>()
         for (i in codeLines.indices) {
             val code = codeLines[i].trim()
             val cat = catLines[i].trim()
+            if (code.isBlank() && cat.isBlank()) {
+                emptyRowErrors.add("Baris ${i + 1}: Kode & Kategori kosong")
+            } else if (code.isBlank()) {
+                emptyRowErrors.add("Baris ${i + 1}: Kode kosong")
+            } else if (cat.isBlank()) {
+                emptyRowErrors.add("Baris ${i + 1}: Kategori kosong")
+            }
+        }
+        if (emptyRowErrors.isNotEmpty()) {
+            return Pair(false, "Ditemukan baris kosong:\n\n${emptyRowErrors.joinToString("\n")}\n\nPastikan semua baris terisi lengkap.")
+        }
 
-            if (code.isBlank() && cat.isBlank()) continue
-            if (code.isBlank()) return Pair(false, "Baris ${i + 1}: Kode kosong!")
-            if (cat.isBlank()) return Pair(false, "Baris ${i + 1}: Kategori kosong!")
+        // --- Phase 2: Build tickets and check internal duplicates ---
+        val tickets = mutableListOf<Ticket>()
+        val codeToRows = mutableMapOf<String, MutableList<Int>>()
 
+        for (i in codeLines.indices) {
+            val code = codeLines[i].trim()
+            val cat = catLines[i].trim()
+            codeToRows.getOrPut(code) { mutableListOf() }.add(i + 1)
             tickets.add(Ticket(qrContent = code, ticketType = cat, isScanned = false))
         }
 
         if (tickets.isEmpty()) return Pair(false, "Tidak ada data tiket valid.")
 
-        viewModelScope.launch {
-            ticketDao.insertTickets(tickets)
-            refreshTicketCount()
+        val internalDuplicates = codeToRows.filter { it.value.size > 1 }
+        if (internalDuplicates.isNotEmpty()) {
+            val messages = internalDuplicates.map { (code, rows) ->
+                "Kode \"$code\" duplikat di baris: ${rows.joinToString(", ")}"
+            }
+            return Pair(false, "Ditemukan kode duplikat di input:\n\n${messages.joinToString("\n")}")
         }
+
+        // --- Phase 3: Check duplicates against existing database ---
+        val allCodes = tickets.map { it.qrContent }
+        val existingCodes = ticketDao.getExistingCodes(allCodes).toSet()
+        if (existingCodes.isNotEmpty()) {
+            val dbDuplicateRows = mutableListOf<String>()
+            for (i in codeLines.indices) {
+                val code = codeLines[i].trim()
+                if (code in existingCodes) {
+                    dbDuplicateRows.add("Baris ${i + 1}: \"$code\"")
+                }
+            }
+            return Pair(false, "Kode sudah ada di database:\n\n${dbDuplicateRows.joinToString("\n")}")
+        }
+
+        ticketDao.insertTickets(tickets)
+        refreshTicketCount()
         return Pair(true, "Ditambahkan!")
     }
 
@@ -150,12 +187,16 @@ class TicketViewModel(application: Application) : AndroidViewModel(application) 
         val ticket = ticketDao.getTicketByQr(qrContent)
         
         return if (ticket != null) {
+            val dateFormat = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault())
             if (ticket.isScanned) {
-                _scanResultMsg.value = "SUDAH DISCAN:\n$qrContent\nTipe: ${ticket.ticketType}"
+                val scanTime = ticket.scannedAt?.let { dateFormat.format(java.util.Date(it)) } ?: "Tidak diketahui"
+                _scanResultMsg.value = "SUDAH DISCAN:\n$qrContent\nTipe: ${ticket.ticketType}\nWaktu: $scanTime"
                 2
             } else {
-                ticketDao.markAsScanned(qrContent)
-                _scanResultMsg.value = "BERHASIL:\n$qrContent\nTipe: ${ticket.ticketType}"
+                val currentTime = System.currentTimeMillis()
+                ticketDao.markAsScanned(qrContent, currentTime)
+                val scanTime = dateFormat.format(java.util.Date(currentTime))
+                _scanResultMsg.value = "BERHASIL:\n$qrContent\nTipe: ${ticket.ticketType}\nWaktu: $scanTime"
                 refreshTicketCount()
                 1
             }
