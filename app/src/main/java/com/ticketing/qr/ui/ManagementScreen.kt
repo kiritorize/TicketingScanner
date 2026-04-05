@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.List
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -36,7 +35,6 @@ fun ManagementScreen(
     var codeInput by remember { mutableStateOf("") }
     var catInput by remember { mutableStateOf("") }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var showClearDialog by remember { mutableStateOf(false) }
     var showSuccessAdd by remember { mutableStateOf(false) }
     val ticketCount by viewModel.ticketCount.collectAsState()
     val ticketList by viewModel.ticketList.collectAsState()
@@ -93,14 +91,6 @@ fun ManagementScreen(
                         modifier = Modifier.padding(24.dp).fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            shape = androidx.compose.foundation.shape.CircleShape,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(Icons.Default.List, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(16.dp))
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text(
                                 text = "Total Tiket Terdaftar",
@@ -161,70 +151,112 @@ fun ManagementScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column {
-                        Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text("No.", modifier = Modifier.width(32.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.Gray.copy(alpha=0.5f))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Kode Unik", modifier = Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Divider(modifier = Modifier.height(16.dp).width(1.dp), color = Color.Gray.copy(alpha=0.5f))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Kategori", modifier = Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState())
-                                .drawBehind {
-                                    val strokeWidth = 1.dp.toPx()
-                                    val yLineHeight = 20.sp.toPx()
-                                    var y = yLineHeight
-                                    while (y <= size.height + yLineHeight) {
+                        Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+
+                        Box(modifier = Modifier.weight(1f)) {
+                            // Vertical and horizontal lines background
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .drawBehind {
+                                        val strokeWidth = 1.dp.toPx()
+                                        // A fixed size of 24.sp.toPx() ensures an accurate map to line heights
+                                        val yLineHeight = 24.sp.toPx()
+                                        var y = yLineHeight
+                                        while (y <= size.height + yLineHeight) {
+                                            drawLine(
+                                                color = Color.LightGray.copy(alpha = 0.5f),
+                                                start = Offset(0f, y),
+                                                end = Offset(size.width, y),
+                                                strokeWidth = strokeWidth
+                                            )
+                                            y += yLineHeight
+                                        }
+
+                                        // Draw vertical lines to match columns
+                                        val noWidth = 32.dp.toPx() + 8.dp.toPx() // Based on padding
+                                        val divider1X = noWidth
+                                        val middleWidth = (size.width - noWidth) / 2f
+                                        val divider2X = noWidth + middleWidth
+
                                         drawLine(
-                                            color = Color.LightGray.copy(alpha = 0.3f),
-                                            start = Offset(0f, y),
-                                            end = Offset(size.width, y),
+                                            color = Color.LightGray.copy(alpha = 0.5f),
+                                            start = Offset(divider1X, 0f),
+                                            end = Offset(divider1X, size.height),
                                             strokeWidth = strokeWidth
                                         )
-                                        y += yLineHeight
+                                        
+                                        drawLine(
+                                            color = Color.LightGray.copy(alpha = 0.5f),
+                                            start = Offset(divider2X, 0f),
+                                            end = Offset(divider2X, size.height),
+                                            strokeWidth = strokeWidth
+                                        )
+                                    }
+                            )
+                            
+                            // Input Area
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(8.dp)
+                            ) {
+                                Column(modifier = Modifier.width(32.dp)) {
+                                    for (i in 1..rowCount) {
+                                        val cLine = codeLines.getOrNull(i - 1)?.isNotBlank() == true
+                                        val kLine = catLines.getOrNull(i - 1)?.isNotBlank() == true
+                                        if (cLine || kLine) {
+                                            Text("$i", fontSize = 14.sp, color = androidx.compose.ui.graphics.Color.Gray, lineHeight = 24.sp)
+                                        } else {
+                                            Text(" ", fontSize = 14.sp, lineHeight = 24.sp)
+                                        }
                                     }
                                 }
-                                .padding(8.dp)
-                        ) {
-                            Column(modifier = Modifier.width(32.dp)) {
-                                for (i in 1..rowCount) {
-                                    val cLine = codeLines.getOrNull(i - 1)?.isNotBlank() == true
-                                    val kLine = catLines.getOrNull(i - 1)?.isNotBlank() == true
-                                    if (cLine || kLine) {
-                                        Text("$i", fontSize = 14.sp, color = androidx.compose.ui.graphics.Color.Gray, lineHeight = 20.sp)
-                                    } else {
-                                        Text(" ", fontSize = 14.sp, lineHeight = 20.sp)
+                                
+                                Spacer(modifier = Modifier.width(10.dp))
+                                
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = codeInput,
+                                    onValueChange = { codeInput = it },
+                                    modifier = Modifier.weight(1f).padding(end = 4.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 24.sp),
+                                    decorationBox = { innerTextField ->
+                                        if (codeInput.isEmpty()) {
+                                            Text("Paste Kode...", color = androidx.compose.ui.graphics.Color.LightGray, fontSize = 14.sp, lineHeight = 24.sp)
+                                        }
+                                        innerTextField()
                                     }
-                                }
+                                )
+                                
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = catInput,
+                                    onValueChange = { catInput = it },
+                                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 24.sp),
+                                    decorationBox = { innerTextField ->
+                                        if (catInput.isEmpty()) {
+                                            Text("Paste Kategori...", color = androidx.compose.ui.graphics.Color.LightGray, fontSize = 14.sp, lineHeight = 24.sp)
+                                        }
+                                        innerTextField()
+                                    }
+                                )
                             }
-                            
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = codeInput,
-                                onValueChange = { codeInput = it },
-                                modifier = Modifier.weight(1f).padding(end = 4.dp),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp),
-                                decorationBox = { innerTextField ->
-                                    if (codeInput.isEmpty()) {
-                                        Text("Paste Kode...", color = androidx.compose.ui.graphics.Color.LightGray, fontSize = 14.sp)
-                                    }
-                                    innerTextField()
-                                }
-                            )
-                            
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = catInput,
-                                onValueChange = { catInput = it },
-                                modifier = Modifier.weight(1f).padding(start = 4.dp),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 20.sp),
-                                decorationBox = { innerTextField ->
-                                    if (catInput.isEmpty()) {
-                                        Text("Paste Kategori...", color = androidx.compose.ui.graphics.Color.LightGray, fontSize = 14.sp)
-                                    }
-                                    innerTextField()
-                                }
-                            )
                         }
                     }
                 }
@@ -275,18 +307,6 @@ fun ManagementScreen(
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
-
-                OutlinedButton(
-                    onClick = { showClearDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Hapus Semua / Reset Database")
-                }
-                
-                Spacer(modifier = Modifier.height(32.dp))
                 
                 Button(
                     onClick = onNavigateToDatabase,
@@ -300,29 +320,5 @@ fun ManagementScreen(
                 Spacer(modifier = Modifier.height(80.dp)) // Extra space for FAB
             }
         }
-    }
-
-    if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            title = { Text("Konfirmasi Reset") },
-            text = { Text("Apakah Anda yakin ingin menghapus semua tiket dan progres scan yang ada? Data tidak dapat dikembalikan.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.clearAllTickets()
-                        showClearDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Hapus")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) {
-                    Text("Batal")
-                }
-            }
-        )
     }
 }

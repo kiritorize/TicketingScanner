@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Search
@@ -59,6 +60,7 @@ fun DatabaseScreen(
 
     var selectedTickets = remember { mutableStateListOf<Int>() }
     val inSelectionMode = selectedTickets.isNotEmpty()
+    var showClearDialog by remember { mutableStateOf(false) }
 
     var editingTicket by remember { mutableStateOf<com.ticketing.qr.data.Ticket?>(null) }
     var editCodeInput by remember { mutableStateOf("") }
@@ -96,6 +98,16 @@ fun DatabaseScreen(
                 },
                 actions = {
                     if (inSelectionMode) {
+                        IconButton(onClick = {
+                            if (selectedTickets.size == filteredList.size) {
+                                selectedTickets.clear()
+                            } else {
+                                selectedTickets.clear()
+                                selectedTickets.addAll(filteredList.map { it.id })
+                            }
+                        }) {
+                            Icon(Icons.Default.Done, contentDescription = "Pilih Semua")
+                        }
                         IconButton(onClick = {
                             viewModel.deleteTickets(selectedTickets.toList())
                             selectedTickets.clear()
@@ -290,6 +302,18 @@ fun DatabaseScreen(
                 
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
+                    
+                    if (ticketList.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = { showClearDialog = true },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text("Hapus Semua / Reset Database")
+                        }
+                    }
                 }
             }
         }
@@ -327,6 +351,30 @@ fun DatabaseScreen(
             },
             dismissButton = {
                 TextButton(onClick = { editingTicket = null }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Konfirmasi Reset") },
+            text = { Text("Apakah Anda yakin ingin menghapus semua tiket dan progres scan yang ada? Data tidak dapat dikembalikan.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearAllTickets()
+                        showClearDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Hapus")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
                     Text("Batal")
                 }
             }

@@ -1,4 +1,4 @@
-#Sun Apr 05 18:04:19 WIB 2026
+#Sun Apr 05 18:33:56 WIB 2026
 base.0=C\:\\Users\\ASUS\\Documents\\benkyō\\koding\\ticketing_kotlin\\app\\build\\intermediates\\dex\\debug\\mergeExtDexDebug\\classes.dex
 base.1=C\:\\Users\\ASUS\\Documents\\benkyō\\koding\\ticketing_kotlin\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\0\\classes.dex
 base.2=C\:\\Users\\ASUS\\Documents\\benkyō\\koding\\ticketing_kotlin\\app\\build\\intermediates\\dex\\debug\\mergeProjectDexDebug\\10\\classes.dex
