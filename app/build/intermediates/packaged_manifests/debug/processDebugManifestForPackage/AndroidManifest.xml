@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.ticketing.qr"
+    package="com.tkrz.qrtix"
     android:versionCode="1"
     android:versionName="1.0" >
 
@@ -15,10 +15,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <permission
-        android:name="com.ticketing.qr.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        android:name="com.tkrz.qrtix.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         android:protectionLevel="signature" />
 
-    <uses-permission android:name="com.ticketing.qr.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" /> <!-- Although the *SdkVersion is captured in gradle build files, this is required for non gradle builds -->
+    <uses-permission android:name="com.tkrz.qrtix.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" /> <!-- Although the *SdkVersion is captured in gradle build files, this is required for non gradle builds -->
     <!-- <uses-sdk android:minSdkVersion="14"/> -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -30,7 +30,9 @@
         android:debuggable="true"
         android:extractNativeLibs="false"
         android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:testOnly="true"
         android:theme="@style/Theme.TicketingScanner" >
@@ -41,7 +43,7 @@
             android:value="barcode" />
 
         <activity
-            android:name="com.ticketing.qr.MainActivity"
+            android:name="com.tkrz.qrtix.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.TicketingScanner" >
             <intent-filter>
@@ -76,7 +78,7 @@
 
         <provider
             android:name="com.google.mlkit.common.internal.MlKitInitProvider"
-            android:authorities="com.ticketing.qr.mlkitinitprovider"
+            android:authorities="com.tkrz.qrtix.mlkitinitprovider"
             android:exported="false"
             android:initOrder="99" />
 
@@ -98,7 +100,7 @@
 
         <provider
             android:name="androidx.startup.InitializationProvider"
-            android:authorities="com.ticketing.qr.androidx-startup"
+            android:authorities="com.tkrz.qrtix.androidx-startup"
             android:exported="false" >
             <meta-data
                 android:name="androidx.emoji2.text.EmojiCompatInitializer"

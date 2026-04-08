@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.ticketing.qr.app-mergeDebugResources-63:/values-fr/values-fr.xml",
+            "outputFile": "com.tkrz.qrtix.app-mergeDebugResources-63:/values-fr/values-fr.xml",
             "map": [
                 {
                     "source": "C:\\Users\\ASUS\\.gradle\\caches\\9.2.1\\transforms\\801003217623f2d41f2fc9b879e85d78\\workspace\\transformed\\appcompat-1.1.0\\res\\values-fr\\values-fr.xml",

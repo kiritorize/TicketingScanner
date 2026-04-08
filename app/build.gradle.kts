@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.ticketing.qr"
+    namespace = "com.tkrz.qrtix"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ticketing.qr"
+        applicationId = "com.tkrz.qrtix"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

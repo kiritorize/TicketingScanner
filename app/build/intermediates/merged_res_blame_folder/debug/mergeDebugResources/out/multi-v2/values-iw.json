@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.ticketing.qr.app-mergeDebugResources-63:/values-iw/values-iw.xml",
+            "outputFile": "com.tkrz.qrtix.app-mergeDebugResources-63:/values-iw/values-iw.xml",
             "map": [
                 {
                     "source": "C:\\Users\\ASUS\\.gradle\\caches\\9.2.1\\transforms\\0df76dc4970d38258f2b5d228ed7c0f1\\workspace\\transformed\\ui-release\\res\\values-iw\\values-iw.xml",

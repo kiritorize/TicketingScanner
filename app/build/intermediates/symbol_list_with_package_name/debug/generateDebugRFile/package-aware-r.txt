@@ -1,4 +1,9 @@
-com.ticketing.qr
+com.tkrz.qrtix
+color ic_launcher_background
+drawable ic_launcher_background
+mipmap ic_launcher
+mipmap ic_launcher_foreground
+mipmap ic_launcher_round
 raw sound_error
 raw sound_success
 string app_name
