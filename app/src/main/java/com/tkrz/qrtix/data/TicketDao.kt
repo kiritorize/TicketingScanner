@@ -2,11 +2,11 @@ package com.tkrz.qrtix.data
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
-import androidx.room.Index
 import androidx.room.Transaction
 
 @Entity(tableName = "tickets", indices = [Index(value = ["qrContent"], unique = true)])
@@ -51,16 +51,4 @@ interface TicketDao {
 
     @Query("SELECT qrContent FROM tickets WHERE qrContent IN (:codes)")
     suspend fun getExistingCodes(codes: List<String>): List<String>
-
-    /**
-     * Re-assigns all ticket IDs to be sequential (1, 2, 3, ..., N) with no gaps.
-     * Call this after any deletion to keep IDs contiguous.
-     */
-    @Transaction
-    suspend fun reassignIds() {
-        val tickets = getAllTickets()
-        deleteAllTickets()
-        try { resetSequence() } catch (_: Exception) {}
-        insertTickets(tickets.map { it.copy(id = 0) })
-    }
 }

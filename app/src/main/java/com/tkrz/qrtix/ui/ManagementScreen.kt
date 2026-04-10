@@ -3,28 +3,59 @@ package com.tkrz.qrtix.ui
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -236,14 +267,14 @@ private fun NumberedInputBox(
 @Composable
 fun ManagementScreen(
     viewModel: TicketViewModel,
-    onNavigateToScanner: () -> Unit,
     onNavigateToDatabase: () -> Unit,
     playSuccess: () -> Unit,
-    playError: () -> Unit
+    playError: () -> Unit,
+    onNavigateBack: () -> Unit
 ) {
     var codeInput by remember { mutableStateOf("") }
     var catInput by remember { mutableStateOf("") }
-    var showSuccessAdd by remember { mutableStateOf(false) }
+    var importResultMessage by remember { mutableStateOf<String?>(null) }
     val ticketCount by viewModel.ticketCount.collectAsState()
     val ticketList by viewModel.ticketList.collectAsState()
 
@@ -253,17 +284,19 @@ fun ManagementScreen(
 
     val scope = rememberCoroutineScope()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     val csvLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            viewModel.importCsvFromUri(it) { success ->
-                if (success) {
-                    playSuccess()
-                    showSuccessAdd = true
-                } else {
+            viewModel.importCsvFromUri(it) { resultMsg ->
+                if (resultMsg.startsWith("Gagal", ignoreCase = true) || resultMsg.startsWith("File CSV", ignoreCase = true) || resultMsg.startsWith("Tidak ada", ignoreCase = true)) {
                     playError()
+                } else {
+                    playSuccess()
                 }
+                importResultMessage = resultMsg
             }
         }
     }
@@ -272,26 +305,27 @@ fun ManagementScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Setup Database Tiket") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Kembali"
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onNavigateToScanner,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Mulai Scan")
-            }
         }
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp),
+                .padding(16.dp)
+                .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             item {
@@ -383,7 +417,7 @@ fun ManagementScreen(
                                     playSuccess()
                                     codeInput = ""
                                     catInput = ""
-                                    showSuccessAdd = true
+                                    importResultMessage = "Berhasil ditambahkan ke Database!"
                                 } else {
                                     playError()
                                     duplicateErrorMessage = result.second
@@ -398,16 +432,19 @@ fun ManagementScreen(
                     Text("Tambahkan dari Input")
                 }
 
-                if (showSuccessAdd) {
+                if (importResultMessage != null) {
                     Text(
-                        text = "Berhasil ditambahkan ke Database!",
-                        color = MaterialTheme.colorScheme.primary,
+                        text = importResultMessage ?: "",
+                        color = if ((importResultMessage ?: "").startsWith("Gagal") || (importResultMessage ?: "").startsWith("File CSV") || (importResultMessage ?: "").startsWith("Tidak ada")) 
+                                MaterialTheme.colorScheme.error 
+                                else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 8.dp),
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
-                    LaunchedEffect(showSuccessAdd) {
-                        kotlinx.coroutines.delay(2000)
-                        showSuccessAdd = false
+                    LaunchedEffect(importResultMessage) {
+                        kotlinx.coroutines.delay(4000)
+                        importResultMessage = null
                     }
                 }
 
@@ -422,7 +459,7 @@ fun ManagementScreen(
             }
             
             item {
-                Spacer(modifier = Modifier.height(80.dp)) // Extra space for FAB
+                Spacer(modifier = Modifier.height(16.dp)) 
             }
         }
     }

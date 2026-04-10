@@ -3,47 +3,84 @@ package com.tkrz.qrtix.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.util.Size
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.AspectRatio
+import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.FlashlightOff
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.tkrz.qrtix.utils.QrCodeAnalyzer
+import com.tkrz.qrtix.viewmodel.ScanStatus
 import com.tkrz.qrtix.viewmodel.TicketViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
+import androidx.compose.ui.geometry.Size as GeometrySize
 
 @Composable
 fun ScannerScreen(
     viewModel: TicketViewModel,
     playSuccess: () -> Unit,
     playError: () -> Unit,
-    onNavigateToManagement: () -> Unit
+    onNavigateToManagement: () -> Unit,
+    onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -69,8 +106,10 @@ fun ScannerScreen(
         }
     }
 
-    val scanResultMessage by viewModel.scanResultMsg.collectAsState()
+    val scanResultStatus by viewModel.scanResultStatus.collectAsState()
     var isProcessing by remember { mutableStateOf(false) }
+    var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
+    var isFlashlightOn by remember { mutableStateOf(false) }
     var manualInput by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
 
@@ -100,12 +139,24 @@ fun ScannerScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val executor = remember { Executors.newSingleThreadExecutor() }
+        DisposableEffect(Unit) {
+            onDispose {
+                try {
+                    val cameraProvider = cameraProviderFuture.get()
+                    cameraProvider.unbindAll()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                executor.shutdown()
+            }
+        }
+
         // Lapisan Bawah: Kamera
         if (hasCameraPermission) {
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx)
-                    val executor = Executors.newSingleThreadExecutor()
 
                     cameraProviderFuture.addListener({
                         val cameraProvider = cameraProviderFuture.get()
@@ -114,7 +165,7 @@ fun ScannerScreen(
                         }
 
                         val imageAnalysis = ImageAnalysis.Builder()
-                            .setTargetResolution(Size(1280, 720))
+                            .setTargetAspectRatio(AspectRatio.RATIO_16_9)
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             .also { analysis ->
@@ -130,12 +181,14 @@ fun ScannerScreen(
 
                         try {
                             cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(
+                            val camera = cameraProvider.bindToLifecycle(
                                 lifecycleOwner,
                                 cameraSelector,
                                 preview,
                                 imageAnalysis
                             )
+                            cameraControl = camera.cameraControl
+                            cameraControl?.enableTorch(isFlashlightOn)
                         } catch (exc: Exception) {
                             exc.printStackTrace()
                         }
@@ -201,40 +254,64 @@ fun ScannerScreen(
                 .fillMaxWidth()
                 .background(Color.Black.copy(alpha = 0.6f))
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = onNavigateBack) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Kembali",
+                    tint = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             val ticketCount by viewModel.ticketCount.collectAsState()
-            Text(
-                text = "Data Terdaftar: $ticketCount",
-                color = Color.White,
-                fontSize = 16.sp
-            )
-            Button(onClick = onNavigateToManagement) {
-                Text("Setup Database")
+            val scannedCount by viewModel.scannedTicketCount.collectAsState()
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Scan: $scannedCount / $ticketCount",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            IconButton(onClick = {
+                isFlashlightOn = !isFlashlightOn
+                cameraControl?.enableTorch(isFlashlightOn)
+            }) {
+                Icon(
+                    imageVector = if (isFlashlightOn) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff,
+                    contentDescription = "Senter",
+                    tint = if (isFlashlightOn) Color.Yellow else Color.White
+                )
             }
         }
 
         // Lapisan Atas: Notifikasi Floating Modern
-        if (scanResultMessage != null) {
-            val msg = scanResultMessage ?: ""
-            val isSuccess = msg.startsWith("BERHASIL")
-            val isAlreadyScanned = msg.startsWith("SUDAH DISCAN")
-            
-            val title = when {
-                isSuccess -> "BERHASIL SCANNED"
-                isAlreadyScanned -> "PERINGATAN!"
-                else -> "TIDAK TERDAFTAR!"
+        if (scanResultStatus !is ScanStatus.Idle) {
+            val titleText = when (scanResultStatus) {
+                is ScanStatus.Success -> "BERHASIL SCANNED"
+                is ScanStatus.AlreadyScanned -> "PERINGATAN!"
+                is ScanStatus.Invalid -> "TIDAK TERDAFTAR!"
+                else -> ""
             }
-            val bgColor = if (isSuccess) Color(0xFF4CAF50) else Color(0xFFF44336)
+            
+            val msgText = when (val s = scanResultStatus) {
+                is ScanStatus.Success -> "${s.ticket.qrContent}\nTipe: ${s.ticket.ticketType}\nWaktu: ${s.scanTimeString}"
+                is ScanStatus.AlreadyScanned -> "SUDAH DISCAN:\n${s.ticket.qrContent}\nTipe: ${s.ticket.ticketType}\nWaktu: ${s.scanTimeString}"
+                is ScanStatus.Invalid -> "Kode: ${s.code}"
+                else -> ""
+            }
+            
+            val bgColor = if (scanResultStatus is ScanStatus.Success) Color(0xFF4CAF50) else Color(0xFFF44336)
             
             AlertDialog(
                 onDismissRequest = { /* Must click button */ },
+                properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
                 containerColor = bgColor,
                 titleContentColor = Color.White,
                 textContentColor = Color.White,
-                title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
-                text = { Text(msg, fontSize = 16.sp, fontWeight = FontWeight.Medium) },
+                title = { Text(titleText, fontWeight = FontWeight.Bold, fontSize = 20.sp) },
+                text = { Text(msgText, fontSize = 16.sp, fontWeight = FontWeight.Medium) },
                 confirmButton = {
                     Button(
                         onClick = {
@@ -254,6 +331,7 @@ fun ScannerScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .imePadding()
                 .background(
                     color = Color.Black.copy(alpha = 0.3f),
                     shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
@@ -283,6 +361,8 @@ fun ScannerScreen(
                             if (manualInput.isNotBlank()) {
                                 processCode(manualInput)
                                 manualInput = ""
+                            } else {
+                                Toast.makeText(context, "Input karakter kode terlebih dahulu!", Toast.LENGTH_SHORT).show()
                             }
                         },
                         enabled = !isProcessing

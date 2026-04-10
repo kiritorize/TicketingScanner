@@ -29,7 +29,6 @@ abstract class AppDatabase : RoomDatabase() {
                     "ticketing_database"
                 )
                 .addMigrations(MIGRATION_5_6)
-                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

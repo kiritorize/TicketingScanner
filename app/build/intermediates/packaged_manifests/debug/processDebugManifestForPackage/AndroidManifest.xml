@@ -13,6 +13,7 @@
         android:required="true" />
 
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <permission
         android:name="com.tkrz.qrtix.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
@@ -24,6 +25,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name="com.tkrz.qrtix.QrtixApplication"
         android:allowBackup="true"
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -92,10 +94,10 @@
             android:value="@integer/google_play_services_version" />
 
         <activity
-            android:name="androidx.activity.ComponentActivity"
+            android:name="androidx.compose.ui.tooling.PreviewActivity"
             android:exported="true" />
         <activity
-            android:name="androidx.compose.ui.tooling.PreviewActivity"
+            android:name="androidx.activity.ComponentActivity"
             android:exported="true" />
 
         <provider

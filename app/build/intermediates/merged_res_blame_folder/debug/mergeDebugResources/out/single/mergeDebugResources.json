@@ -1,90 +1,90 @@
 [
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/xml_data_extraction_rules.xml.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/xml/data_extraction_rules.xml"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xxxhdpi_ic_launcher.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xxxhdpi/ic_launcher.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xhdpi_ic_launcher.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xhdpi/ic_launcher.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/xml_data_extraction_rules.xml.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/xml/data_extraction_rules.xml"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xxxhdpi_ic_launcher.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xxxhdpi/ic_launcher.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/raw_sound_success.mp3.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/raw/sound_success.mp3"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/drawable_ic_launcher_background.xml.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/drawable/ic_launcher_background.xml"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-anydpi-v26/ic_launcher.xml"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-mdpi_ic_launcher.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-mdpi/ic_launcher.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xhdpi_ic_launcher_foreground.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xhdpi/ic_launcher_foreground.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-hdpi_ic_launcher_foreground.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-hdpi/ic_launcher_foreground.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-hdpi_ic_launcher.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-hdpi/ic_launcher.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xxhdpi_ic_launcher_foreground.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xxhdpi/ic_launcher_foreground.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/raw_sound_error.mp3.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/raw/sound_error.mp3"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-hdpi_ic_launcher.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-hdpi/ic_launcher.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-anydpi-v26/ic_launcher_round.xml"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xxxhdpi_ic_launcher_round.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xxxhdpi/ic_launcher_round.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/xml_backup_rules.xml.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/xml/backup_rules.xml"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-anydpi-v26/ic_launcher_round.xml"
+        "merged": "com.tkrz.qrtix.app-debug-73:/drawable_ic_launcher_background.xml.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/drawable/ic_launcher_background.xml"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xhdpi_ic_launcher_foreground.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xhdpi/ic_launcher_foreground.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xhdpi_ic_launcher_round.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xhdpi/ic_launcher_round.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-anydpi-v26_ic_launcher.xml.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-anydpi-v26/ic_launcher.xml"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xxhdpi_ic_launcher.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xxhdpi/ic_launcher.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xxhdpi_ic_launcher_round.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xxhdpi/ic_launcher_round.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xxhdpi_ic_launcher_foreground.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xxhdpi/ic_launcher_foreground.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xxhdpi_ic_launcher.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xxhdpi/ic_launcher.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-mdpi_ic_launcher.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-mdpi/ic_launcher.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-mdpi_ic_launcher_round.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-mdpi/ic_launcher_round.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-hdpi_ic_launcher_round.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-hdpi/ic_launcher_round.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-mdpi_ic_launcher_foreground.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-mdpi/ic_launcher_foreground.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-hdpi_ic_launcher_foreground.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-hdpi/ic_launcher_foreground.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-hdpi_ic_launcher_round.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-hdpi/ic_launcher_round.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-mdpi_ic_launcher_foreground.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-mdpi/ic_launcher_foreground.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/raw_sound_success.mp3.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/raw/sound_success.mp3"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xhdpi_ic_launcher.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xhdpi/ic_launcher.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xhdpi_ic_launcher_round.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xhdpi/ic_launcher_round.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-mdpi_ic_launcher_round.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-mdpi/ic_launcher_round.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/xml_backup_rules.xml.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/xml/backup_rules.xml"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xxxhdpi_ic_launcher_foreground.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xxxhdpi/ic_launcher_foreground.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/raw_sound_error.mp3.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/raw/sound_error.mp3"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xxxhdpi_ic_launcher_round.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xxxhdpi/ic_launcher_round.webp"
     },
     {
-        "merged": "com.tkrz.qrtix.app-debug-65:/mipmap-xxxhdpi_ic_launcher_foreground.webp.flat",
-        "source": "com.tkrz.qrtix.app-main-67:/mipmap-xxxhdpi/ic_launcher_foreground.webp"
+        "merged": "com.tkrz.qrtix.app-debug-73:/mipmap-xxhdpi_ic_launcher_round.webp.flat",
+        "source": "com.tkrz.qrtix.app-main-75:/mipmap-xxhdpi/ic_launcher_round.webp"
     }
 ]

@@ -4,35 +4,77 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Done
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.style.TextOverflow
 import com.tkrz.qrtix.viewmodel.TicketViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -42,64 +84,22 @@ fun DatabaseScreen(
     onNavigateBack: () -> Unit
 ) {
     val ticketList by viewModel.ticketList.collectAsState()
-    var searchQuery by remember { mutableStateOf("") }
-    
-    var sortMode by remember { mutableStateOf("ID Tiket") }
-    var sortAscending by remember { mutableStateOf(true) }
+    val filteredList by viewModel.filteredList.collectAsState()
+
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val filterStatus by viewModel.filterStatus.collectAsState()
+    val filterCategory by viewModel.filterCategory.collectAsState()
+    val sortMode by viewModel.sortMode.collectAsState()
+    val sortAscending by viewModel.sortAscending.collectAsState()
+
     var expandedSort by remember { mutableStateOf(false) }
     val sortOptions = listOf("ID Tiket", "Waktu Dimodifikasi", "Terakhir Discan")
-
-    // --- Filter state ---
-    var filterStatus by remember { mutableStateOf("Semua") }
     val statusFilterOptions = listOf("Semua", "Sudah Scan", "Belum Scan")
-
-    var filterCategory by remember { mutableStateOf("Semua Kategori") }
     var expandedCatFilter by remember { mutableStateOf(false) }
 
-    // Unique categories from all ticket data
     val uniqueCategories = remember(ticketList) {
         listOf("Semua Kategori") + ticketList.map { it.ticketType }.distinct().sorted()
     }
-
-    val filteredList = ticketList
-        // Search filter
-        .filter { ticket ->
-            searchQuery.isBlank() ||
-            ticket.qrContent.contains(searchQuery, ignoreCase = true) ||
-            ticket.ticketType.contains(searchQuery, ignoreCase = true)
-        }
-        // Status filter
-        .filter { ticket ->
-            when (filterStatus) {
-                "Sudah Scan" -> ticket.isScanned
-                "Belum Scan" -> !ticket.isScanned
-                else -> true
-            }
-        }
-        // Category filter
-        .filter { ticket ->
-            filterCategory == "Semua Kategori" || ticket.ticketType == filterCategory
-        }
-        // Sort
-        .sortedWith { t1, t2 ->
-            val baseCompare = when (sortMode) {
-                "ID Tiket" -> t1.id.compareTo(t2.id)
-                "Waktu Dimodifikasi" -> t1.createdAt.compareTo(t2.createdAt)
-                "Terakhir Discan" -> {
-                    // Null scannedAt (belum discan) goes last when ascending, first when descending
-                    val s1 = t1.scannedAt
-                    val s2 = t2.scannedAt
-                    when {
-                        s1 == null && s2 == null -> 0
-                        s1 == null -> 1  // null always goes to end (before direction flip)
-                        s2 == null -> -1
-                        else -> s1.compareTo(s2)
-                    }
-                }
-                else -> t1.id.compareTo(t2.id)
-            }
-            if (sortAscending) baseCompare else -baseCompare
-        }
 
     val isFiltering = searchQuery.isNotBlank() || filterStatus != "Semua" || filterCategory != "Semua Kategori"
 
@@ -117,16 +117,22 @@ fun DatabaseScreen(
     var editCodeInput by remember { mutableStateOf("") }
     var editCatInput by remember { mutableStateOf("") }
 
+    var exportOnlyScanned by remember { mutableStateOf(false) }
+
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri: Uri? ->
         uri?.let {
-            viewModel.exportDataToCsvUri(it) { success ->
+            viewModel.exportDataToCsvUri(it, exportOnlyScanned) { success ->
             }
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { 
@@ -160,14 +166,50 @@ fun DatabaseScreen(
                             Icon(Icons.Default.DoneAll, contentDescription = "Pilih Semua")
                         }
                         IconButton(onClick = {
+                            val count = selectedTickets.size
                             viewModel.deleteTickets(selectedTickets.toList())
                             selectedTickets.clear()
+                            
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "$count tiket dihapus",
+                                    actionLabel = "UNDO",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.undoDelete()
+                                }
+                            }
                         }) {
                             Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
                         }
                     } else {
-                        IconButton(onClick = { exportLauncher.launch("List_Tiket.csv") }) {
-                            Icon(Icons.Default.Share, contentDescription = "Export Excel (CSV)")
+                        var showExportMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { showExportMenu = true }) {
+                                Icon(Icons.Default.IosShare, contentDescription = "Export Excel (CSV)")
+                            }
+                            DropdownMenu(
+                                expanded = showExportMenu,
+                                onDismissRequest = { showExportMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export Semua Data") },
+                                    onClick = {
+                                        exportOnlyScanned = false
+                                        exportLauncher.launch("List_Semua_Tiket.csv")
+                                        showExportMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Export Kehadiran Saja") },
+                                    onClick = {
+                                        exportOnlyScanned = true
+                                        exportLauncher.launch("List_Kehadiran.csv")
+                                        showExportMenu = false
+                                    }
+                                )
+                            }
                         }
                     }
                 },
@@ -183,13 +225,11 @@ fun DatabaseScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Search, Filter, and Sort Header
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    // Total + Filter Toggle row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -209,7 +249,6 @@ fun DatabaseScreen(
                         }
                     }
 
-                    // Filter info
                     if (isFiltering) {
                         Text(
                             text = "Menampilkan hasil filter: ${filteredList.size}",
@@ -220,12 +259,18 @@ fun DatabaseScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Search
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Cari berdasarkan kode atau kategori....") },
+                        onValueChange = { viewModel.searchQuery.value = it },
+                        placeholder = { Text("Cari tiket....") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.searchQuery.value = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Hapus pencarian")
+                                }
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -237,7 +282,6 @@ fun DatabaseScreen(
                     if (showFilters) {
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Status Filter Chips
                         Text("Status:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
@@ -247,7 +291,7 @@ fun DatabaseScreen(
                             statusFilterOptions.forEach { status ->
                                 FilterChip(
                                     selected = filterStatus == status,
-                                    onClick = { filterStatus = status },
+                                    onClick = { viewModel.filterStatus.value = status },
                                     label = { Text(status, fontSize = 12.sp) }
                                 )
                             }
@@ -255,12 +299,10 @@ fun DatabaseScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Category Filter & Sort row
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Kategori
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Kategori:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -282,7 +324,7 @@ fun DatabaseScreen(
                                             DropdownMenuItem(
                                                 text = { Text(cat) },
                                                 onClick = {
-                                                    filterCategory = cat
+                                                    viewModel.filterCategory.value = cat
                                                     expandedCatFilter = false
                                                 }
                                             )
@@ -291,7 +333,6 @@ fun DatabaseScreen(
                                 }
                             }
                             
-                            // Vertical Separator
                             Box(
                                 modifier = Modifier
                                     .padding(horizontal = 12.dp)
@@ -300,7 +341,6 @@ fun DatabaseScreen(
                                     .background(Color.Gray.copy(alpha = 0.5f))
                             )
                             
-                            // Sort
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Urutkan:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -323,7 +363,7 @@ fun DatabaseScreen(
                                                 DropdownMenuItem(
                                                     text = { Text(option) },
                                                     onClick = {
-                                                        sortMode = option
+                                                        viewModel.sortMode.value = option
                                                         expandedSort = false
                                                     }
                                                 )
@@ -332,7 +372,7 @@ fun DatabaseScreen(
                                     }
                                     Spacer(modifier = Modifier.width(4.dp))
                                     IconButton(
-                                        onClick = { sortAscending = !sortAscending },
+                                        onClick = { viewModel.sortAscending.value = !sortAscending },
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
@@ -349,7 +389,8 @@ fun DatabaseScreen(
                 }
             }
 
-            // List Content
+            val dateFormat = remember { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault()) }
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
             ) {
@@ -434,7 +475,6 @@ fun DatabaseScreen(
                                     fontSize = 14.sp
                                 )
                                 if (isScanned && ticket.scannedAt != null) {
-                                    val dateFormat = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault())
                                     Text(
                                         text = "Waktu: ${dateFormat.format(java.util.Date(ticket.scannedAt))}",
                                         color = Color.Gray,
@@ -461,7 +501,7 @@ fun DatabaseScreen(
                                         Spacer(modifier = Modifier.width(4.dp))
                                     }
                                     Text(
-                                        text = "#${ticket.id}",
+                                        text = "#${index + 1}",
                                         color = Color.Gray,
                                         fontSize = 12.sp
                                     )
@@ -538,6 +578,16 @@ fun DatabaseScreen(
                     onClick = {
                         viewModel.clearAllTickets()
                         showClearDialog = false
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Semua database direset",
+                                actionLabel = "UNDO",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoDelete()
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {

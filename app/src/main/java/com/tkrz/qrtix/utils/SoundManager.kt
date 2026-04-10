@@ -3,10 +3,13 @@ package com.tkrz.qrtix.utils
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
-import com.tkrz.qrtix.R
+import android.os.VibrationEffect
+import android.os.Vibrator
+import androidx.core.content.ContextCompat
 
-class SoundManager(context: Context) {
+class SoundManager(private val context: Context) {
     private var soundPool: SoundPool
+    private var vibrator: Vibrator? = ContextCompat.getSystemService(context, Vibrator::class.java)
     private var soundSuccessId: Int = 0
     private var soundErrorId: Int = 0
     private var loaded = false
@@ -44,11 +47,35 @@ class SoundManager(context: Context) {
         if (loaded && soundSuccessId != 0) {
             soundPool.play(soundSuccessId, 1f, 1f, 1, 0, 1f)
         }
+        vibrate(50)
     }
 
     fun playError() {
         if (loaded && soundErrorId != 0) {
             soundPool.play(soundErrorId, 1f, 1f, 1, 0, 1f)
+        }
+        vibratePattern(longArrayOf(0, 100, 100, 100))
+    }
+
+    private fun vibrate(duration: Long) {
+        if (vibrator?.hasVibrator() == true) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(duration)
+            }
+        }
+    }
+
+    private fun vibratePattern(pattern: LongArray) {
+        if (vibrator?.hasVibrator() == true) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(pattern, -1)
+            }
         }
     }
 

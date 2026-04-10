@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.tkrz.qrtix.app-mergeDebugResources-63:/values-h720dp-v13/values-h720dp-v13.xml",
+            "outputFile": "com.tkrz.qrtix.app-mergeDebugResources-71:/values-h720dp-v13/values-h720dp-v13.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\ASUS\\.gradle\\caches\\9.2.1\\transforms\\801003217623f2d41f2fc9b879e85d78\\workspace\\transformed\\appcompat-1.1.0\\res\\values-h720dp-v13\\values-h720dp-v13.xml",
+                    "source": "C:\\Users\\ASUS\\.gradle\\caches\\9.2.1\\transforms\\3d419716c3cc82d21db748769336854b\\workspace\\transformed\\appcompat-1.6.1\\res\\values-h720dp-v13\\values-h720dp-v13.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

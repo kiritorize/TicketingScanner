@@ -4,9 +4,9 @@ import androidx.room.EntityInsertAdapter
 import androidx.room.RoomDatabase
 import androidx.room.util.appendPlaceholders
 import androidx.room.util.getColumnIndexOrThrow
-import androidx.room.util.performInTransactionSuspending
 import androidx.room.util.performSuspending
 import androidx.sqlite.SQLiteStatement
+import javax.`annotation`.processing.Generated
 import kotlin.Boolean
 import kotlin.Int
 import kotlin.Long
@@ -19,6 +19,7 @@ import kotlin.collections.mutableListOf
 import kotlin.reflect.KClass
 import kotlin.text.StringBuilder
 
+@Generated(value = ["androidx.room.RoomProcessor"])
 @Suppress(names = ["UNCHECKED_CAST", "DEPRECATION", "REDUNDANT_PROJECTION", "REMOVAL"])
 public class TicketDao_Impl(
   __db: RoomDatabase,
@@ -54,10 +55,6 @@ public class TicketDao_Impl(
   public override suspend fun insertTickets(tickets: List<Ticket>): Unit = performSuspending(__db,
       false, true) { _connection ->
     __insertAdapterOfTicket.insert(_connection, tickets)
-  }
-
-  public override suspend fun reassignIds(): Unit = performInTransactionSuspending(__db) {
-    super@TicketDao_Impl.reassignIds()
   }
 
   public override suspend fun getAllTickets(): List<Ticket> {
