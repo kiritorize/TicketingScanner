@@ -266,7 +266,13 @@ fun ScannerScreen(
             Spacer(modifier = Modifier.width(8.dp))
             val ticketCount by viewModel.ticketCount.collectAsState()
             val scannedCount by viewModel.scannedTicketCount.collectAsState()
+            val activeEvent by viewModel.activeEvent.collectAsState()
             Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = activeEvent?.name ?: "",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp
+                )
                 Text(
                     text = "Scan: $scannedCount / $ticketCount",
                     color = Color.White,

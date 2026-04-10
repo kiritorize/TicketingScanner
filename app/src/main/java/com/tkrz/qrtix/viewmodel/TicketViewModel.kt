@@ -5,6 +5,9 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.github.doyaaaaaken.kotlincsv.dsl.csvReader
+import com.tkrz.qrtix.data.Event
+import com.tkrz.qrtix.data.EventDao
+import com.tkrz.qrtix.data.EventPreferences
 import com.tkrz.qrtix.data.Ticket
 import com.tkrz.qrtix.data.TicketDao
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,8 +32,23 @@ sealed class ScanStatus {
 @HiltViewModel
 class TicketViewModel @Inject constructor(
     private val ticketDao: TicketDao,
+    private val eventDao: EventDao,
+    private val eventPreferences: EventPreferences,
+    private val historyLogDao: com.tkrz.qrtix.data.HistoryLogDao,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    val activeEventId: StateFlow<Long> = eventPreferences.activeEventId
+
+    private val _historyLogs = MutableStateFlow<List<com.tkrz.qrtix.data.HistoryLog>>(emptyList())
+    val historyLogs: StateFlow<List<com.tkrz.qrtix.data.HistoryLog>> = _historyLogs
+
+
+    private val _activeEvent = MutableStateFlow<Event?>(null)
+    val activeEvent: StateFlow<Event?> = _activeEvent
+
+    val allEvents: StateFlow<List<Event>> = eventDao.getAllEvents()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     private val _ticketCount = MutableStateFlow(0)
     val ticketCount: StateFlow<Int> = _ticketCount
@@ -97,25 +115,101 @@ class TicketViewModel @Inject constructor(
     private var recentlyDeletedTickets: List<Ticket>? = null
 
     init {
-        refreshTicketCount()
+        viewModelScope.launch(Dispatchers.IO) {
+            activeEventId.collect { id ->
+                var ev = eventDao.getEventById(id)
+                if (ev == null) {
+                    val defaultEvent = eventDao.getEventById(1L)
+                    if (defaultEvent == null) {
+                        eventDao.insertEvent(Event(id = 1L, name = "Event Default"))
+                    }
+                    if (id != 1L) {
+                        launch(Dispatchers.Main) {
+                            eventPreferences.setActiveEventId(1L)
+                        }
+                        return@collect
+                    }
+                    ev = eventDao.getEventById(1L)
+                }
+                _activeEvent.value = ev
+                refreshTicketCount()
+            }
+        }
+    }
+
+    fun createAndSwitchEvent(name: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (allEvents.value.any { it.name.equals(name, ignoreCase = true) }) {
+                showErrorToast("Nama workspace sudah ada!")
+                return@launch
+            }
+            val newId = eventDao.insertEvent(Event(name = name))
+            launch(Dispatchers.Main) {
+                eventPreferences.setActiveEventId(newId)
+            }
+        }
+    }
+
+    fun switchEvent(id: Long) {
+        eventPreferences.setActiveEventId(id)
+        viewModelScope.launch(Dispatchers.IO) {
+            val event = eventDao.getEventById(id)
+            if (event != null) {
+                eventDao.updateEvent(event.copy(lastAccessedAt = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun updateEventName(id: Long, newName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (allEvents.value.any { it.name.equals(newName, ignoreCase = true) && it.id != id }) {
+                showErrorToast("Nama workspace sudah ada!")
+                return@launch
+            }
+            val event = eventDao.getEventById(id)
+            if (event != null) {
+                val updatedEvent = event.copy(name = newName)
+                eventDao.updateEvent(updatedEvent)
+                if (id == activeEventId.value) {
+                    _activeEvent.value = updatedEvent
+                }
+            }
+        }
+    }
+
+    private fun showErrorToast(message: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun deleteEvent(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (id != 1L && id != activeEventId.value) {    
+                eventDao.deleteEvent(id)
+                ticketDao.deleteAllTickets(id)
+            }
+        }
     }
 
     private fun refreshTicketCount() {
         viewModelScope.launch {
-            val tickets = ticketDao.getAllTickets()
+            val evtId = activeEventId.value
+            val tickets = ticketDao.getAllTickets(evtId)
             _ticketCount.value = tickets.size
             _ticketList.value = tickets
             _scannedTicketCount.value = tickets.count { it.isScanned }
+            _historyLogs.value = historyLogDao.getLogsForEvent(evtId)
         }
     }
 
     suspend fun addTicketsFromText(text: String): String {
         return withContext(Dispatchers.Default) {
             try {
-                // Gunakan kotlin-csv agar lebih kebal error dari tanda kutip dan koma di dalam string
                 val rows = csvReader().readAll(text)
                 if (rows.isEmpty()) return@withContext "File CSV kosong atau tidak terbaca."
 
+                val evtId = activeEventId.value
                 val tickets = mutableListOf<Ticket>()
                 var isFirstLine = true
                 for (row in rows) {
@@ -134,19 +228,17 @@ class TicketViewModel @Inject constructor(
 
                     if (qr.isBlank() || type.isBlank()) continue
 
-                    tickets.add(Ticket(qrContent = qr, ticketType = type, isScanned = false))
+                    tickets.add(Ticket(qrContent = qr, ticketType = type, isScanned = false, eventId = evtId))
                 }
 
                 if (tickets.isEmpty()) return@withContext "Tidak ada data tiket valid di dalam file."
 
-                // Mengecek ke database apakah ada baris duplikat sebelum insert
                 val allCodes = tickets.map { it.qrContent }
-                val existingCodes = ticketDao.getExistingCodes(allCodes).toSet()
+                val existingCodes = ticketDao.getExistingCodes(allCodes, evtId).toSet()
 
                 val internalCodesToRows = mutableMapOf<String, MutableList<Int>>()
                 val uniqueInternalTickets = mutableListOf<Ticket>()
 
-                // Filter duplikat di dalam file itu sendiri
                 for (i in tickets.indices) {
                     val code = tickets[i].qrContent
                     internalCodesToRows.getOrPut(code) { mutableListOf() }.add(i)
@@ -160,6 +252,13 @@ class TicketViewModel @Inject constructor(
 
                 if (newTickets.isNotEmpty()) {
                     ticketDao.insertTickets(newTickets)
+                    val detailsStr = newTickets.joinToString("||") { "${it.qrContent}::${it.ticketType}" }
+                    historyLogDao.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                        eventId = evtId, 
+                        action = "Import", 
+                        description = if (newTickets.size == 1) "Penambahan pada kode: ${newTickets.first().qrContent}" else "Penambahan ${newTickets.size} tiket",
+                        details = if (newTickets.size > 1) detailsStr else ""
+                    ))
                     refreshTicketCount()
                 }
 
@@ -193,13 +292,16 @@ class TicketViewModel @Inject constructor(
 
     fun clearAllTickets() {
         viewModelScope.launch {
+            val evtId = activeEventId.value
             recentlyDeletedTickets = _ticketList.value
-            ticketDao.deleteAllTickets()
+            ticketDao.deleteAllTickets(evtId)
             try {
                 ticketDao.resetSequence()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+            val detailsStr = serializeTickets(recentlyDeletedTickets ?: emptyList())
+            historyLogDao.insertLog(com.tkrz.qrtix.data.HistoryLog(eventId = evtId, action = "Hapus Semua", description = "Penghapusan semua tiket", details = detailsStr))
             refreshTicketCount()
         }
     }
@@ -209,6 +311,9 @@ class TicketViewModel @Inject constructor(
         viewModelScope.launch {
             recentlyDeletedTickets = _ticketList.value.filter { it.id in ids }
             ticketDao.deleteTickets(ids)
+            val detailsStr = serializeTickets(recentlyDeletedTickets ?: emptyList())
+            val desc = if (ids.size == 1) "Penghapusan pada kode: ${recentlyDeletedTickets?.firstOrNull()?.qrContent}" else "Penghapusan ${ids.size} tiket"
+            historyLogDao.insertLog(com.tkrz.qrtix.data.HistoryLog(eventId = activeEventId.value, action = "Hapus", description = desc, details = detailsStr))
             refreshTicketCount()
         }
     }
@@ -218,6 +323,9 @@ class TicketViewModel @Inject constructor(
             if (tickets.isNotEmpty()) {
                 viewModelScope.launch {
                     ticketDao.insertTickets(tickets)
+                    // No need to insert "Batal Hapus" since we have a dedicated Undo button on History log now.
+                    // Instead, the old implementation used this for Snackbar Undo.
+                    // We can choose not to log Snackbar Undos, or use the undoHistoryLog method if passed.
                     refreshTicketCount()
                     recentlyDeletedTickets = null
                 }
@@ -228,7 +336,16 @@ class TicketViewModel @Inject constructor(
     fun updateTicket(id: Int, newQr: String, newType: String) {
         viewModelScope.launch {
             try {
+                val oldTicket = _ticketList.value.find { it.id == id }
+                val oldQr = oldTicket?.qrContent ?: "Tidak diketahui"
+                val oldCat = oldTicket?.ticketType ?: "Tidak diketahui"
                 ticketDao.updateTicket(id, newQr, newType, System.currentTimeMillis())
+                historyLogDao.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                    eventId = activeEventId.value, 
+                    action = "Edit", 
+                    description = "Pengeditan pada kode tiket $oldQr",
+                    details = "Sebelumnya: $oldQr ($oldCat)||Setelah diedit: $newQr ($newType)"
+                ))
                 refreshTicketCount()
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -237,6 +354,7 @@ class TicketViewModel @Inject constructor(
     }
 
     suspend fun addTicketsFromTwoBoxes(codesText: String, categoriesText: String): Pair<Boolean, String> {
+        val evtId = activeEventId.value
         val codes = codesText.split("\n")
         val cats = categoriesText.split("\n")
 
@@ -272,7 +390,7 @@ class TicketViewModel @Inject constructor(
             val code = codeLines[i].trim()
             val cat = catLines[i].trim()
             codeToRows.getOrPut(code) { mutableListOf() }.add(i + 1)
-            tickets.add(Ticket(qrContent = code, ticketType = cat, isScanned = false))
+            tickets.add(Ticket(qrContent = code, ticketType = cat, isScanned = false, eventId = evtId))
         }
 
         if (tickets.isEmpty()) return Pair(false, "Tidak ada data tiket valid.")
@@ -286,7 +404,7 @@ class TicketViewModel @Inject constructor(
         }
 
         val allCodes = tickets.map { it.qrContent }
-        val existingCodes = ticketDao.getExistingCodes(allCodes).toSet()
+        val existingCodes = ticketDao.getExistingCodes(allCodes, evtId).toSet()
         if (existingCodes.isNotEmpty()) {
             val dbDuplicateRows = mutableListOf<String>()
             for (i in codeLines.indices) {
@@ -299,6 +417,9 @@ class TicketViewModel @Inject constructor(
         }
 
         ticketDao.insertTickets(tickets)
+        val detailsStr = tickets.joinToString("||") { "${it.qrContent}::${it.ticketType}" }
+        val desc = if (tickets.size == 1) "Penambahan pada kode: ${tickets.first().qrContent}" else "Penambahan ${tickets.size} tiket"
+        historyLogDao.insertLog(com.tkrz.qrtix.data.HistoryLog(eventId = evtId, action = "Tambah", description = desc, details = if (tickets.size > 1) detailsStr else ""))
         refreshTicketCount()
         return Pair(true, "Ditambahkan!")
     }
@@ -308,7 +429,8 @@ class TicketViewModel @Inject constructor(
     }
 
     suspend fun processQrCode(qrContent: String): Int {
-        val ticket = ticketDao.getTicketByQr(qrContent)
+        val evtId = activeEventId.value
+        val ticket = ticketDao.getTicketByQr(qrContent, evtId)
         
         return if (ticket != null) {
             val dateFormat = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault())
@@ -318,7 +440,8 @@ class TicketViewModel @Inject constructor(
                 2
             } else {
                 val currentTime = System.currentTimeMillis()
-                ticketDao.markAsScanned(qrContent, currentTime)
+                ticketDao.markAsScanned(qrContent, evtId, currentTime)
+                historyLogDao.insertLog(com.tkrz.qrtix.data.HistoryLog(eventId = evtId, action = "Scan", description = "Telah disucan kode: $qrContent", timestamp = currentTime))
                 val scanTime = dateFormat.format(java.util.Date(currentTime))
                 _scanResultStatus.value = ScanStatus.Success(ticket, scanTime)
                 refreshTicketCount()
@@ -331,10 +454,11 @@ class TicketViewModel @Inject constructor(
     }
 
     fun exportDataToCsvUri(uri: Uri, onlyScanned: Boolean, onResult: (Boolean) -> Unit) {
+        val evtId = activeEventId.value
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    var tickets = ticketDao.getAllTickets()
+                    var tickets = ticketDao.getAllTickets(evtId)
                     if (onlyScanned) {
                         tickets = tickets.filter { it.isScanned }
                     }
@@ -347,7 +471,6 @@ class TicketViewModel @Inject constructor(
                             val scanStr = if (ticket.isScanned) "Sudah" else "Belum"
                             val scannedAtStr = ticket.scannedAt?.let { dateFormat.format(java.util.Date(it)) } ?: "-"
                             
-                            // Escape commas properly with string replaces for simple CSV formatting
                             val escapedQr = ticket.qrContent.replace("\"", "\"\"")
                             val escapedType = ticket.ticketType.replace("\"", "\"\"")
 
@@ -360,6 +483,51 @@ class TicketViewModel @Inject constructor(
                 e.printStackTrace()
                 onResult(false)
             }
+        }
+    }
+
+    private fun serializeTickets(tickets: List<Ticket>): String {
+        return tickets.joinToString("||") { 
+            "${it.id}::${it.qrContent}::${it.ticketType}::${it.isScanned}::${it.createdAt}::${it.scannedAt ?: -1}::${it.isModified}::${it.eventId}"
+        }
+    }
+
+    private fun deserializeTickets(data: String): List<Ticket> {
+        if (data.isBlank()) return emptyList()
+        return data.split("||").mapNotNull {
+            val parts = it.split("::")
+            if (parts.size >= 8) {
+                Ticket(
+                    id = parts[0].toInt(),
+                    qrContent = parts[1],
+                    ticketType = parts[2],
+                    isScanned = parts[3].toBoolean(),
+                    createdAt = parts[4].toLongOrNull() ?: System.currentTimeMillis(),
+                    scannedAt = parts[5].toLongOrNull().takeIf { time -> time != -1L },
+                    isModified = parts[6].toBoolean(),
+                    eventId = parts[7].toLongOrNull() ?: 1L
+                )
+            } else null
+        }
+    }
+
+    fun undoHistoryLog(log: com.tkrz.qrtix.data.HistoryLog) {
+        if ((log.action == "Hapus" || log.action == "Hapus Semua") && log.details.isNotBlank() && !log.isUndone) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val ticketsToRestore = deserializeTickets(log.details)
+                if (ticketsToRestore.isNotEmpty()) {
+                    ticketDao.insertTickets(ticketsToRestore)
+                    historyLogDao.markAsUndone(log.id)
+                    refreshTicketCount()
+                }
+            }
+        }
+    }
+
+    fun clearHistoryLogs() {
+        viewModelScope.launch(Dispatchers.IO) {
+            historyLogDao.deleteLogsForEvent(activeEventId.value)
+            refreshTicketCount()
         }
     }
 }

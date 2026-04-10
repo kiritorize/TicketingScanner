@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("mainmenu") {
                             com.tkrz.qrtix.ui.MainMenuScreen(
+                                viewModel = viewModel,
                                 onNavigateToScanner = { navController.navigate("scanner") },
                                 onNavigateToManagement = { navController.navigate("management") },
                                 onNavigateToDatabase = { navController.navigate("database") }

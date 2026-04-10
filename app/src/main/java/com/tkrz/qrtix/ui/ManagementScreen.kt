@@ -304,7 +304,13 @@ fun ManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Setup Database Tiket") },
+                title = { 
+                    val activeEvent by viewModel.activeEvent.collectAsState()
+                    Column {
+                        Text("Setup Database Tiket")
+                        Text(activeEvent?.name ?: "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(

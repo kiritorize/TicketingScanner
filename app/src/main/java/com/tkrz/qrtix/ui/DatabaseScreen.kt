@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material3.AlertDialog
@@ -107,6 +108,7 @@ fun DatabaseScreen(
     var selectedTickets = remember { mutableStateListOf<Int>() }
     val inSelectionMode = selectedTickets.isNotEmpty()
     var showClearDialog by remember { mutableStateOf(false) }
+    var showHistoryDialog by remember { mutableStateOf(false) }
 
     // Intercept system back button: cancel selection mode instead of navigating back
     BackHandler(enabled = inSelectionMode) {
@@ -136,10 +138,14 @@ fun DatabaseScreen(
         topBar = {
             TopAppBar(
                 title = { 
-                    if (inSelectionMode) {
-                        Text("${selectedTickets.size} Terpilih")
-                    } else {
-                        Text("List Lengkap Database") 
+                    val activeEvent by viewModel.activeEvent.collectAsState()
+                    Column {
+                        if (inSelectionMode) {
+                            Text("${selectedTickets.size} Terpilih")
+                        } else {
+                            Text("List Lengkap Database") 
+                        }
+                        Text(activeEvent?.name ?: "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
                     }
                 },
                 navigationIcon = {
@@ -184,6 +190,9 @@ fun DatabaseScreen(
                             Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
                         }
                     } else {
+                        IconButton(onClick = { showHistoryDialog = true }) {
+                            Icon(Icons.Default.History, contentDescription = "Riwayat Aktivitas")
+                        }
                         var showExportMenu by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { showExportMenu = true }) {
@@ -599,6 +608,13 @@ fun DatabaseScreen(
                     Text("Batal")
                 }
             }
+        )
+    }
+
+    if (showHistoryDialog) {
+        HistoryLogDialog(
+            viewModel = viewModel,
+            onDismissRequest = { showHistoryDialog = false }
         )
     }
 }
