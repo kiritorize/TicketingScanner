@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="ic_launcher_background">#A4A2E4</color>
-    <string name="app_name">QRTix.</string>
-    <style name="Theme.TicketingScanner" parent="android:Theme.Material.Light.NoActionBar"/>
-</resources>

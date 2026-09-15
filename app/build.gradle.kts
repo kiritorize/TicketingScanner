@@ -86,6 +86,9 @@ dependencies {
     // CSV Parser
     implementation("com.github.doyaaaaaken:kotlin-csv-jvm:1.9.3")
 
+    // QR Code Generation
+    implementation("com.google.zxing:core:3.5.3")
+
     // Tests
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

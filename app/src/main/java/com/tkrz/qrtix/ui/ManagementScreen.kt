@@ -35,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -70,204 +71,14 @@ import kotlinx.coroutines.launch
  * Reusable input box with row numbers, scrollable content, scrollbar, and clear button.
  * Uses onTextLayout to get exact line positions from the rendering engine.
  */
-@Composable
-private fun NumberedInputBox(
-    label: String,
-    placeholder: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    onClear: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val lines = value.split("\n")
-    val lineCount = lines.size
-    val scrollState = rememberScrollState()
-
-    // Build the number text: one number per line, matching TextField lines
-    val numberText = (1..lineCount).joinToString("\n") { "$it" }
-
-    // Shared base style ensures identical vertical positioning for numbers & input
-    val baseLineStyle = TextStyle(
-        fontSize = 14.sp,
-        lineHeight = 24.sp,
-        platformStyle = PlatformTextStyle(includeFontPadding = false),
-        lineHeightStyle = LineHeightStyle(
-            alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.Both
-        )
-    )
-
-    // Capture the actual text layout result from BasicTextField
-    var textLayoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
-
-    val topPadDp = 8.dp
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(160.dp),
-        shape = MaterialTheme.shapes.medium,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
-        Column {
-            // Header row — taller than input rows
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(38.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "No",
-                    modifier = Modifier.width(32.dp),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Divider(
-                    modifier = Modifier.height(20.dp).width(1.dp),
-                    color = Color.Gray.copy(alpha = 0.5f)
-                )
-                Text(
-                    label,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                // Clear button — only show when box has content
-                if (value.isNotEmpty()) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Kosongkan",
-                        modifier = Modifier
-                            .padding(end = 6.dp)
-                            .size(18.dp)
-                            .clickable { onClear() },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Divider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-
-            // Content area: grid lines + scrollable content + scrollbar
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clipToBounds()
-                    .drawWithContent {
-                        val strokeWidth = 1.dp.toPx()
-                        val scrollY = scrollState.value.toFloat()
-                        val numColW = 32.dp.toPx()
-                        val topPad = topPadDp.toPx()
-
-                        // --- Draw grid lines BEHIND content ---
-
-                        // Vertical line after number column
-                        drawLine(
-                            Color.LightGray.copy(alpha = 0.5f),
-                            start = Offset(numColW, 0f),
-                            end = Offset(numColW, size.height),
-                            strokeWidth = strokeWidth
-                        )
-
-                        // Horizontal lines — based on ACTUAL text layout positions
-                        val layout = textLayoutResult
-                        if (layout != null && layout.lineCount > 1) {
-                            for (i in 0 until layout.lineCount - 1) {
-                                // getLineBottom gives the exact bottom of line i
-                                // relative to the TextField content area.
-                                // Add topPad because TextField has padding(top = 8.dp)
-                                val viewY = topPad + layout.getLineBottom(i) - scrollY
-                                if (viewY > size.height) break
-                                if (viewY > 0f) {
-                                    drawLine(
-                                        Color.LightGray.copy(alpha = 0.5f),
-                                        start = Offset(0f, viewY),
-                                        end = Offset(size.width, viewY),
-                                        strokeWidth = strokeWidth
-                                    )
-                                }
-                            }
-                        }
-
-                        // --- Draw actual composable content ---
-                        drawContent()
-
-                        // --- Draw scrollbar ON TOP ---
-                        val maxScroll = scrollState.maxValue.toFloat()
-                        if (maxScroll > 0f) {
-                            val viewH = size.height
-                            val contentH = viewH + maxScroll
-                            val thumbH = (viewH / contentH * viewH).coerceAtLeast(20.dp.toPx())
-                            val thumbY = (scrollY / maxScroll) * (viewH - thumbH)
-                            val barW = 4.dp.toPx()
-                            val barX = size.width - barW - 2.dp.toPx()
-                            drawRoundRect(
-                                color = Color.Gray.copy(alpha = 0.4f),
-                                topLeft = Offset(barX, thumbY),
-                                size = Size(barW, thumbH),
-                                cornerRadius = CornerRadius(barW / 2f)
-                            )
-                        }
-                    }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(scrollState)
-                ) {
-                    // Row numbers — uses identical base style for perfect vertical alignment
-                    Text(
-                        text = numberText,
-                        modifier = Modifier
-                            .width(32.dp)
-                            .padding(top = topPadDp, bottom = 8.dp),
-                        style = baseLineStyle.copy(
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-                    )
-
-                    // Text input field — uses identical base style
-                    BasicTextField(
-                        value = value,
-                        onValueChange = onValueChange,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 4.dp, end = 8.dp, top = topPadDp, bottom = 8.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        textStyle = baseLineStyle.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        onTextLayout = { result ->
-                            textLayoutResult = result
-                        },
-                        decorationBox = { innerTextField ->
-                            if (value.isEmpty()) {
-                                Text(
-                                    placeholder,
-                                    style = baseLineStyle.copy(
-                                        color = Color.LightGray
-                                    )
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
+// NumberedInputBox has been moved to a shared component in ui package
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManagementScreen(
     viewModel: TicketViewModel,
     onNavigateToDatabase: () -> Unit,
+    onNavigateToGenerator: () -> Unit,
     playSuccess: () -> Unit,
     playError: () -> Unit,
     onNavigateBack: () -> Unit
@@ -358,6 +169,31 @@ fun ManagementScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Tombol Bantuan ke Generator
+                OutlinedButton(
+                    onClick = onNavigateToGenerator,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Belum punya kode QR? Buat di sini", 
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
 

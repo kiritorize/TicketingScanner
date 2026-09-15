@@ -117,45 +117,79 @@ class TicketViewModel @Inject constructor(
     init {
         viewModelScope.launch(Dispatchers.IO) {
             activeEventId.collect { id ->
-                var ev = eventDao.getEventById(id)
-                if (ev == null) {
-                    val defaultEvent = eventDao.getEventById(1L)
-                    if (defaultEvent == null) {
-                        eventDao.insertEvent(Event(id = 1L, name = "Event Default"))
-                    }
-                    if (id != 1L) {
-                        launch(Dispatchers.Main) {
-                            eventPreferences.setActiveEventId(1L)
+                try {
+                    var ev = eventDao.getEventById(id)
+                    
+                    // If the current event ID from preferences is invalid/deleted
+                    if (ev == null) {
+                        // Attempt to recover using the default event (ID 1)
+                        val defaultEvent = eventDao.getEventById(1L)
+                        if (defaultEvent == null) {
+                            // If even the default event is missing, create it
+                            val newDefault = Event(id = 1L, name = "Event Default")
+                            eventDao.insertEvent(newDefault)
+                            ev = newDefault
+                        } else {
+                            ev = defaultEvent
                         }
-                        return@collect
+                        
+                        // Sync preferences back to a valid event ID
+                        if (id != ev.id) {
+                            launch(Dispatchers.Main) {
+                                eventPreferences.setActiveEventId(ev.id)
+                            }
+                            // The collector will be triggered again by the preference update
+                            return@collect
+                        }
                     }
-                    ev = eventDao.getEventById(1L)
+                    
+                    // Update the active event state and refresh the data
+                    _activeEvent.value = ev
+                    refreshTicketCount()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    // If a serious DB error occurs, at least ensure we don't crash the main thread
                 }
-                _activeEvent.value = ev
-                refreshTicketCount()
             }
         }
     }
 
     fun createAndSwitchEvent(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (allEvents.value.any { it.name.equals(name, ignoreCase = true) }) {
-                showErrorToast("Nama workspace sudah ada!")
-                return@launch
-            }
-            val newId = eventDao.insertEvent(Event(name = name))
-            launch(Dispatchers.Main) {
-                eventPreferences.setActiveEventId(newId)
+            try {
+                val trimmedName = name.trim()
+                if (trimmedName.isEmpty()) return@launch
+                
+                if (allEvents.value.any { it.name.equals(trimmedName, ignoreCase = true) }) {
+                    showErrorToast("Nama workspace sudah ada!")
+                    return@launch
+                }
+                val newId = eventDao.insertEvent(Event(name = trimmedName))
+                launch(Dispatchers.Main) {
+                    eventPreferences.setActiveEventId(newId)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showErrorToast("Gagal membuat workspace: ${e.message}")
             }
         }
     }
 
     fun switchEvent(id: Long) {
-        eventPreferences.setActiveEventId(id)
         viewModelScope.launch(Dispatchers.IO) {
-            val event = eventDao.getEventById(id)
-            if (event != null) {
-                eventDao.updateEvent(event.copy(lastAccessedAt = System.currentTimeMillis()))
+            try {
+                val event = eventDao.getEventById(id)
+                if (event != null) {
+                    eventDao.updateEvent(event.copy(lastAccessedAt = System.currentTimeMillis()))
+                    launch(Dispatchers.Main) {
+                        eventPreferences.setActiveEventId(id)
+                    }
+                } else {
+                    showErrorToast("Workspace tidak ditemukan!")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showErrorToast("Gagal berpindah workspace: ${e.message}")
             }
         }
     }

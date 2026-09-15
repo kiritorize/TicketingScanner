@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tkrz.qrtix.viewmodel.TicketViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,7 +44,8 @@ fun MainMenuScreen(
     viewModel: TicketViewModel,
     onNavigateToScanner: () -> Unit,
     onNavigateToManagement: () -> Unit,
-    onNavigateToDatabase: () -> Unit
+    onNavigateToDatabase: () -> Unit,
+    onNavigateToGenerator: () -> Unit
 ) {
     val activeEvent by viewModel.activeEvent.collectAsState()
     val allEvents by viewModel.allEvents.collectAsState()
@@ -136,6 +141,25 @@ fun MainMenuScreen(
                         .height(56.dp)
                 ) {
                     Text("List Database", fontSize = 18.sp)
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Tombol Alat Generator Tiket (Baru)
+                Button(
+                    onClick = onNavigateToGenerator,
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(56.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Alat Generator Tiket", fontSize = 18.sp)
+                    }
                 }
             }
 

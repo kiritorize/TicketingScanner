@@ -1,0 +1,31 @@
+# Build and IDE folders
+build/
+app/build/
+.gradle/
+.idea/
+*.iml
+local.properties
+
+# Gradle executables
+gradlew
+gradlew.bat
+gradle/wrapper/
+
+# Media and Binaries
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.svg
+*.gif
+*.jar
+*.aar
+*.so
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Optional: Exclude tests if you only want the AI to focus on main logic
+# src/test/
+# src/androidTest/

@@ -16,6 +16,7 @@ import com.tkrz.qrtix.ui.DatabaseScreen
 import com.tkrz.qrtix.ui.ManagementScreen
 import com.tkrz.qrtix.ui.ScannerScreen
 import com.tkrz.qrtix.ui.SplashScreen
+import com.tkrz.qrtix.ui.GeneratorScreen
 import com.tkrz.qrtix.utils.SoundManager
 import com.tkrz.qrtix.viewmodel.TicketViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -61,7 +62,8 @@ class MainActivity : ComponentActivity() {
                                 viewModel = viewModel,
                                 onNavigateToScanner = { navController.navigate("scanner") },
                                 onNavigateToManagement = { navController.navigate("management") },
-                                onNavigateToDatabase = { navController.navigate("database") }
+                                onNavigateToDatabase = { navController.navigate("database") },
+                                onNavigateToGenerator = { navController.navigate("generator") }
                             )
                         }
                         composable("scanner") {
@@ -77,6 +79,7 @@ class MainActivity : ComponentActivity() {
                             ManagementScreen(
                                 viewModel = viewModel,
                                 onNavigateToDatabase = { navController.navigate("database") },
+                                onNavigateToGenerator = { navController.navigate("generator") },
                                 playSuccess = { soundManager.playSuccess() },
                                 playError = { soundManager.playError() },
                                 onNavigateBack = safeNavigateBack
@@ -85,6 +88,11 @@ class MainActivity : ComponentActivity() {
                         composable("database") {
                             DatabaseScreen(
                                 viewModel = viewModel,
+                                onNavigateBack = safeNavigateBack
+                            )
+                        }
+                        composable("generator") {
+                            GeneratorScreen(
                                 onNavigateBack = safeNavigateBack
                             )
                         }

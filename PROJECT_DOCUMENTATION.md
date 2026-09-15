@@ -1,11 +1,12 @@
 # PROJECT DOCUMENTATION — QRTix (TicketingScanner)
 
-> **INSTRUCTIONS FOR AI AGENT:**
-> 1. Read this file FIRST before doing anything. This file contains the full project context.
-> 2. Read `TASKS.md` (same root directory) to know what work needs to be done.
-> 3. After completing work, UPDATE the relevant sections of this file (structure, new files, new features, schema changes, etc.) and add an entry to the CHANGE LOG at the bottom.
-> 4. Do NOT rewrite this entire file. Only update sections affected by your changes.
-> 5. All paths in this document are relative to the project root unless stated otherwise.
+> **CRITICAL INSTRUCTIONS FOR AI AGENT:**
+> 1. **STRICT LANGUAGE RULE**: All documentation, task descriptions, notes, and change log entries MUST ALWAYS be written in **ENGLISH ONLY**. Never write documentation or tasks in Indonesian (even though the Android app's user-facing UI text is in Indonesian).
+> 2. Read this file FIRST before doing anything. This file contains the full project context.
+> 3. Read `TASKS.md` (same root directory) to know what work needs to be done.
+> 4. After completing work, UPDATE the relevant sections of this file (structure, new files, new features, schema changes, etc.) and add an entry to the CHANGE LOG at the bottom in **English**.
+> 5. Do NOT rewrite this entire file. Only update sections affected by your changes.
+> 6. All paths in this document are relative to the project root unless stated otherwise.
 
 ---
 
