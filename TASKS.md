@@ -88,17 +88,16 @@ Format template:
 
 ---
 
-#### Task 9.5.1: Database & Cloud Schema (Step 1)
+#### Task 9.5.3: UI Implementation & Migration (Step 3)
 - **Status**: [x]
 - **Priority**: High
 - **Description**:
-  - Separate Category Name and Category ID to support mutable names with immutable IDs.
-  - Create `TicketCategory` entity and `CategoryDao`.
-  - Update `AppDatabase` migration to v13.
-  - Update `SpreadsheetManager` to create a `Categories` sheet in Google Sheets.
-- **Affected files**: `data/TicketCategory.kt`, `data/CategoryDao.kt`, `data/AppDatabase.kt`, `data/cloud/SpreadsheetManager.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Do not touch UI logic yet. Ensure backward compatibility with existing databases via proper Room migration.
-- **Completion Notes**: Created `TicketCategory` entity and `CategoryDao`. Added `MIGRATION_12_13` to `AppDatabase` creating the `categories` table. Updated `SpreadsheetManager` to create the `Categories` sheet upon spreadsheet initialization.
+  - Implement `CategoryManagementDialog` for CRUD operations on categories (accessible via `DashboardScreen`).
+  - Update `GeneratorScreen` (Mode Kuota) to use a Dropdown menu driven by registered categories.
+  - Add validation to `GeneratorScreen` (Mode CSV) and `ManagementScreen` to ensure manually pasted categories map strictly to valid Category Codes.
+  - Update `DistributionScreen` to leverage the new category names and properly map back to the immutable Category Codes for assignment.
+- **Affected files**: `ui/CategoryManagementDialog.kt`, `ui/DashboardScreen.kt`, `ui/GeneratorScreen.kt`, `ui/ManagementScreen.kt`, `ui/DistributionScreen.kt`
+- **Completion Notes**: Added full UI layer for managing Category Name vs Code. Removed free-text category input from Generator's Mode Kuota. Enforced strict validation for pasted codes in Management and CSV Mode.
 
 ---
 
@@ -114,16 +113,97 @@ Format template:
 
 ---
 
-#### Task 9.5.3: UI Implementation & Migration (Step 3)
+#### Task 9.5.1: Database & Cloud Schema (Step 1)
 - **Status**: [x]
 - **Priority**: High
 - **Description**:
-  - Implement `CategoryManagementDialog` for CRUD operations on categories (accessible via `DashboardScreen`).
-  - Update `GeneratorScreen` (Mode Kuota) to use a Dropdown menu driven by registered categories.
-  - Add validation to `GeneratorScreen` (Mode CSV) and `ManagementScreen` to ensure manually pasted categories map strictly to valid Category Codes.
-  - Update `DistributionScreen` to leverage the new category names and properly map back to the immutable Category Codes for assignment.
-- **Affected files**: `ui/CategoryManagementDialog.kt`, `ui/DashboardScreen.kt`, `ui/GeneratorScreen.kt`, `ui/ManagementScreen.kt`, `ui/DistributionScreen.kt`
-- **Completion Notes**: Added full UI layer for managing Category Name vs Code. Removed free-text category input from Generator's Mode Kuota. Enforced strict validation for pasted codes in Management and CSV Mode.
+  - Separate Category Name and Category ID to support mutable names with immutable IDs.
+  - Create `TicketCategory` entity and `CategoryDao`.
+  - Update `AppDatabase` migration to v13.
+  - Update `SpreadsheetManager` to create a `Categories` sheet in Google Sheets.
+- **Affected files**: `data/TicketCategory.kt`, `data/CategoryDao.kt`, `data/AppDatabase.kt`, `data/cloud/SpreadsheetManager.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Do not touch UI logic yet. Ensure backward compatibility with existing databases via proper Room migration.
+- **Completion Notes**: Created `TicketCategory` entity and `CategoryDao`. Added `MIGRATION_12_13` to `AppDatabase` creating the `categories` table. Updated `SpreadsheetManager` to create the `Categories` sheet upon spreadsheet initialization.
+
+---
+
+#### Task 9.4: Distribution Status Dashboard & Retry
+- **Status**: [x]
+- **Priority**: Medium
+- **Description**:
+  - Enhance Step 4 of `DistributionScreen` with a full status dashboard:
+    - Progress bar with percentage and count: "Mengirim 182/248 (73%)"
+    - Estimated time remaining.
+    - Real-time log feed showing the last 10 send results (timestamp + email + status icon).
+    - Summary counters: ✅ Terkirim: X | ❌ Gagal: Y | ⏳ Menunggu: Z
+  - **Retry mechanism**:
+    - "Retry Gagal" button that re-attempts all rows with `emailStatus = "FAILED"`.
+    - Individual retry: tap a failed row to retry just that one email.
+  - **Export report**: "Export Laporan" button that generates a CSV summary of the distribution (buyer name, email, tickets sent, status) and saves it to the device or Google Drive.
+  - After all emails are sent (or user explicitly marks distribution as complete), update the event's state so the `DashboardScreen` reflects that distribution is done.
+- **Affected files**: `ui/DistributionScreen.kt`, `viewmodel/DistributionViewModel.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The status dashboard should remain accessible even after all emails are sent, so the panitia can review the final distribution report at any time.
+- **Completion Notes**: Added `distributionSheetId` to `Event` and migrated DB to v12. Added Retry and Export Report (CSV) functionality to ViewModel and UI. Export saves to `Documents/QRTix/[EventName]` and updated `TicketExporter` to follow the same directory structure. DashboardScreen now shows "Status Distribusi" when a sheet ID is present.
+
+---
+
+#### Task 9.3: Gmail API Integration & Batch Email Sending
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Add the Gmail API dependency and request the `gmail.send` OAuth scope during Google Sign-In (update Task 5.2's scope list).
+  - Create a `GmailService` class that wraps the Gmail API. Provide a method: `sendEmailWithAttachment(to, subject, body, attachmentBytes, attachmentFileName)`.
+  - Implement **Step 4 (Send & Status)** of the `DistributionScreen` wizard — the sending logic:
+    - Read the `Distribution` sheet to get all rows with `emailStatus = "PENDING"` or `"FAILED"`.
+    - For each row:
+      1. Check `emailStatus` → if `"SENT"`, **skip** (idempotent).
+      2. Download the corresponding QR code image(s) from Google Drive.
+      3. Compose email: subject = "[Event Name] — Tiket Anda", body = greeting + event details + ticket info, attachment = QR code image(s).
+      4. Send via Gmail API.
+      5. On success → update `emailStatus` to `"SENT"` and `sentAt` to current timestamp in the `Distribution` sheet.
+      6. On failure → update `emailStatus` to `"FAILED"` and `errorMessage` to the error description.
+    - **Rate limiting**: Insert a delay between each email send (~7–8 seconds) to stay safely within Gmail API quota (≈480 emails/hour, under the 500/day limit for free Gmail accounts).
+    - Support **Pause** and **Resume**: user can pause sending mid-batch, and resume later (the process picks up from the first non-"SENT" row).
+    - If the app is closed and reopened, the process can be resumed from where it left off by reading the `Distribution` sheet status.
+  - The "Kirim" button must be **disabled** while sending is in progress (prevents double-trigger).
+  - **Supervisor Monitoring via Google Sheets**:
+    - After the `Distribution` sheet is created (Task 9.2), insert a **summary header block** in rows 1–2 above the data:
+      - Row 1: "DISTRIBUSI TIKET — [Event Name]"
+      - Row 2: "Total: X | Terkirim: Y | Gagal: Z | Menunggu: W | Progres: XX.X%"
+    - After **each email is sent** (or batch of emails), update the summary row counters and percentage in real-time via Sheets API.
+    - Apply **conditional formatting** to the `emailStatus` column via Sheets API (`batchUpdate` with `AddConditionalFormatRuleRequest`):
+      - "SENT" → green background
+      - "FAILED" → red background
+      - "PENDING" → yellow background
+    - This allows supervisors/managers to open the Google Sheets link from any device (browser, phone) and monitor distribution progress in real-time without needing the QRTix app installed.
+- **Affected files**: `data/cloud/GmailService.kt (NEW)`, `ui/DistributionScreen.kt`, `viewmodel/DistributionViewModel.kt`, `di/AppModule.kt`, `app/build.gradle.kts`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Gmail API daily sending limits: 500/day (free Gmail), 2000/day (Google Workspace). For large events (>500 buyers), the app should notify the user that sending will be spread across multiple days and offer an estimated completion date. Keep the screen on (`FLAG_KEEP_SCREEN_ON`) during active sending. The summary row update frequency should be batched (e.g., update after every 5 emails sent) to minimize API calls.
+
+---
+
+#### Task 9.2: Distribution Matching, Validation & Persistence
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Implement **Step 3 (Review & Validation)** of the `DistributionScreen` wizard.
+  - After column mapping is confirmed, process the Form response data:
+    - For each buyer row: read name, email, category, and quantity.
+    - Auto-assign the appropriate number of generated tickets (from the active event's ticket pool) to each buyer.
+    - Assignment is deterministic: tickets are assigned sequentially by category (first available unassigned ticket of the matching category).
+  - **Validation (3 layers)**:
+    1. **Data validation**: Flag rows with empty email, invalid email format, empty name, quantity = 0, or unrecognized category.
+    2. **Quantity validation**: Verify that the total requested tickets per category does not exceed the total available tickets of that category in the event database. If it does, show a clear error: "Kategori VIP: diminta 120, tersedia 100".
+    3. **Match validation**: After assignment, verify that every buyer's assigned ticket count matches their requested quantity exactly.
+  - Display a summary screen:
+    - Total valid buyers, total tickets to distribute, per-category breakdown.
+    - List of any flagged errors (must be resolved before proceeding).
+    - Scrollable detail table: Buyer Name | Email | Category | Qty Requested | Tickets Assigned | Status (✅ or ❌).
+  - Create a `Distribution` sheet tab in the `QRTix_Data` spreadsheet (via `GoogleSheetsService`) with columns: buyerName, buyerEmail, ticketCategory, ticketCodes (comma-separated), emailStatus ("PENDING"/"SENT"/"FAILED"), sentAt, errorMessage.
+  - Write the confirmed distribution mapping to this sheet. Once written, the mapping is **frozen** — subsequent runs read from this sheet rather than re-generating the mapping.
+  - "Konfirmasi & Lanjut" button is **disabled** if any validation errors exist.
+- **Affected files**: `ui/DistributionScreen.kt`, `data/repository/DistributionRepository.kt (NEW)`, `data/cloud/GoogleSheetsService.kt`, `viewmodel/DistributionViewModel.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: If the user returns to Step 3 after distribution has already been confirmed (mapping frozen in Sheets), load the existing mapping from the `Distribution` sheet instead of re-generating. Show a notice: "Distribusi sudah dikonfirmasi sebelumnya."
+- **Completion Notes**: Created `BuyerData`, `DistributionAssignment`, `ValidationResult` in `Distribution.kt`. Implemented `DistributionRepository.kt` to handle frozen mapping detection, 3-layer validation, deterministic assignment, and saving to Sheets via `GoogleSheetsService`. Created `DistributionViewModel.kt` injected via Hilt in `AppModule.kt`. Refactored `DistributionScreen.kt` to transition to Step 4 (Review & Validation) UI with summary cards and validation errors preview.
 
 ---
 
@@ -179,100 +259,17 @@ Format template:
 
 ---
 
-#### Task 9.2: Distribution Matching, Validation & Persistence
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Implement **Step 3 (Review & Validation)** of the `DistributionScreen` wizard.
-  - After column mapping is confirmed, process the Form response data:
-    - For each buyer row: read name, email, category, and quantity.
-    - Auto-assign the appropriate number of generated tickets (from the active event's ticket pool) to each buyer.
-    - Assignment is deterministic: tickets are assigned sequentially by category (first available unassigned ticket of the matching category).
-  - **Validation (3 layers)**:
-    1. **Data validation**: Flag rows with empty email, invalid email format, empty name, quantity = 0, or unrecognized category.
-    2. **Quantity validation**: Verify that the total requested tickets per category does not exceed the total available tickets of that category in the event database. If it does, show a clear error: "Kategori VIP: diminta 120, tersedia 100".
-    3. **Match validation**: After assignment, verify that every buyer's assigned ticket count matches their requested quantity exactly.
-  - Display a summary screen:
-    - Total valid buyers, total tickets to distribute, per-category breakdown.
-    - List of any flagged errors (must be resolved before proceeding).
-    - Scrollable detail table: Buyer Name | Email | Category | Qty Requested | Tickets Assigned | Status (✅ or ❌).
-  - Create a `Distribution` sheet tab in the `QRTix_Data` spreadsheet (via `GoogleSheetsService`) with columns: buyerName, buyerEmail, ticketCategory, ticketCodes (comma-separated), emailStatus ("PENDING"/"SENT"/"FAILED"), sentAt, errorMessage.
-  - Write the confirmed distribution mapping to this sheet. Once written, the mapping is **frozen** — subsequent runs read from this sheet rather than re-generating the mapping.
-  - "Konfirmasi & Lanjut" button is **disabled** if any validation errors exist.
-- **Affected files**: `ui/DistributionScreen.kt`, `data/repository/DistributionRepository.kt (NEW)`, `data/cloud/GoogleSheetsService.kt`, `viewmodel/DistributionViewModel.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: If the user returns to Step 3 after distribution has already been confirmed (mapping frozen in Sheets), load the existing mapping from the `Distribution` sheet instead of re-generating. Show a notice: "Distribusi sudah dikonfirmasi sebelumnya."
-- **Completion Notes**: Created `BuyerData`, `DistributionAssignment`, `ValidationResult` in `Distribution.kt`. Implemented `DistributionRepository.kt` to handle frozen mapping detection, 3-layer validation, deterministic assignment, and saving to Sheets via `GoogleSheetsService`. Created `DistributionViewModel.kt` injected via Hilt in `AppModule.kt`. Refactored `DistributionScreen.kt` to transition to Step 4 (Review & Validation) UI with summary cards and validation errors preview.
-
----
-
-#### Task 9.3: Gmail API Integration & Batch Email Sending
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Add the Gmail API dependency and request the `gmail.send` OAuth scope during Google Sign-In (update Task 5.2's scope list).
-  - Create a `GmailService` class that wraps the Gmail API. Provide a method: `sendEmailWithAttachment(to, subject, body, attachmentBytes, attachmentFileName)`.
-  - Implement **Step 4 (Send & Status)** of the `DistributionScreen` wizard — the sending logic:
-    - Read the `Distribution` sheet to get all rows with `emailStatus = "PENDING"` or `"FAILED"`.
-    - For each row:
-      1. Check `emailStatus` → if `"SENT"`, **skip** (idempotent).
-      2. Download the corresponding QR code image(s) from Google Drive.
-      3. Compose email: subject = "[Event Name] — Tiket Anda", body = greeting + event details + ticket info, attachment = QR code image(s).
-      4. Send via Gmail API.
-      5. On success → update `emailStatus` to `"SENT"` and `sentAt` to current timestamp in the `Distribution` sheet.
-      6. On failure → update `emailStatus` to `"FAILED"` and `errorMessage` to the error description.
-    - **Rate limiting**: Insert a delay between each email send (~7–8 seconds) to stay safely within Gmail API quota (≈480 emails/hour, under the 500/day limit for free Gmail accounts).
-    - Support **Pause** and **Resume**: user can pause sending mid-batch, and resume later (the process picks up from the first non-"SENT" row).
-    - If the app is closed and reopened, the process can be resumed from where it left off by reading the `Distribution` sheet status.
-  - The "Kirim" button must be **disabled** while sending is in progress (prevents double-trigger).
-  - **Supervisor Monitoring via Google Sheets**:
-    - After the `Distribution` sheet is created (Task 9.2), insert a **summary header block** in rows 1–2 above the data:
-      - Row 1: "DISTRIBUSI TIKET — [Event Name]"
-      - Row 2: "Total: X | Terkirim: Y | Gagal: Z | Menunggu: W | Progres: XX.X%"
-    - After **each email is sent** (or batch of emails), update the summary row counters and percentage in real-time via Sheets API.
-    - Apply **conditional formatting** to the `emailStatus` column via Sheets API (`batchUpdate` with `AddConditionalFormatRuleRequest`):
-      - "SENT" → green background
-      - "FAILED" → red background
-      - "PENDING" → yellow background
-    - This allows supervisors/managers to open the Google Sheets link from any device (browser, phone) and monitor distribution progress in real-time without needing the QRTix app installed.
-- **Affected files**: `data/cloud/GmailService.kt (NEW)`, `ui/DistributionScreen.kt`, `viewmodel/DistributionViewModel.kt`, `di/AppModule.kt`, `app/build.gradle.kts`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Gmail API daily sending limits: 500/day (free Gmail), 2000/day (Google Workspace). For large events (>500 buyers), the app should notify the user that sending will be spread across multiple days and offer an estimated completion date. Keep the screen on (`FLAG_KEEP_SCREEN_ON`) during active sending. The summary row update frequency should be batched (e.g., update after every 5 emails sent) to minimize API calls.
-
----
-
-#### Task 9.4: Distribution Status Dashboard & Retry
+#### Task 8.3: Event Context Lock & Cross-Event Safety Guards
 - **Status**: [x]
 - **Priority**: Medium
 - **Description**:
-  - Enhance Step 4 of `DistributionScreen` with a full status dashboard:
-    - Progress bar with percentage and count: "Mengirim 182/248 (73%)"
-    - Estimated time remaining.
-    - Real-time log feed showing the last 10 send results (timestamp + email + status icon).
-    - Summary counters: ✅ Terkirim: X | ❌ Gagal: Y | ⏳ Menunggu: Z
-  - **Retry mechanism**:
-    - "Retry Gagal" button that re-attempts all rows with `emailStatus = "FAILED"`.
-    - Individual retry: tap a failed row to retry just that one email.
-  - **Export report**: "Export Laporan" button that generates a CSV summary of the distribution (buyer name, email, tickets sent, status) and saves it to the device or Google Drive.
-  - After all emails are sent (or user explicitly marks distribution as complete), update the event's state so the `DashboardScreen` reflects that distribution is done.
-- **Affected files**: `ui/DistributionScreen.kt`, `viewmodel/DistributionViewModel.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The status dashboard should remain accessible even after all emails are sent, so the panitia can review the final distribution report at any time.
-- **Completion Notes**: Added `distributionSheetId` to `Event` and migrated DB to v12. Added Retry and Export Report (CSV) functionality to ViewModel and UI. Export saves to `Documents/QRTix/[EventName]` and updated `TicketExporter` to follow the same directory structure. DashboardScreen now shows "Status Distribusi" when a sheet ID is present.
-
----
-
-#### Task 8.1: Login & Onboarding Screen
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Redesign the app entry flow:
-    1. `SplashScreen` → check if user is already signed in.
-    2. If NOT signed in → navigate to `LoginScreen` (Google Sign-In button, app logo, tagline).
-    3. If signed in → navigate to the new `DashboardScreen` (replaces current `MainMenuScreen`).
-  - After first-time sign-in, show a brief onboarding overlay or tooltip sequence explaining the app flow:
-    1. "Buat Event baru" → 2. "Generate tiket" → 3. "Distribusikan tiket" → 4. "Scan tiket di hari-H".
-  - Store a flag (`hasSeenOnboarding`) in local preferences so onboarding only shows once.
-- **Affected files**: `ui/LoginScreen.kt`, `ui/SplashScreen.kt`, `ui/OnboardingOverlay.kt (NEW)`, `MainActivity.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Onboarding text should be in Indonesian (Bahasa Indonesia). Keep it concise — maximum 4 steps/screens.
-- **Completion Notes**: Implemented `hasSeenOnboarding` flag in `AuthPreferences` and `AuthViewModel`. Created `OnboardingOverlay.kt` showing a 4-step wizard. Updated `MainActivity.kt` to route to `"onboarding"` before `"mainmenu"` for first-time sign-in. Redesigned `LoginScreen.kt` with logo, tagline, and better UI layout.
+  - Add persistent visual indicators on EVERY screen showing the active event name and color-coded badge (each event gets a distinct accent color) so the user always knows which event they're operating on.
+  - Before critical operations (import tickets, delete all, scan), show a **confirmation dialog** that explicitly states the active event name: e.g., "Anda akan mengimpor tiket ke event **Konser Rock**. Lanjutkan?".
+  - In `GeneratorScreen`: if the "Direct insert to DB" checkbox (Task 3.3) is enabled, show the target event name prominently and require explicit confirmation.
+  - Prevent event switching while a scan session is actively in progress (require the user to explicitly "end" the scan session first).
+- **Affected files**: `ui/ScannerScreen.kt`, `ui/ManagementScreen.kt`, `ui/DatabaseScreen.kt`, `ui/GeneratorScreen.kt`, `ui/components/EventBadge.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The event badge component should be reusable across all screens. Use a consistent position (e.g., top-left or integrated into the top app bar) for muscle memory.
+- **Completion Notes**: Created `EventBadge.kt` using consistent dynamic colors. Added `EventBadge` and explicit event name confirmation dialogs to `DatabaseScreen` (Delete All), `ManagementScreen` (CSV/Manual Import), `GeneratorScreen` (Direct Insert), and `DashboardScreen` (Start Scan). Implemented event switch warning in `DashboardScreen` when `scannedTicketCount > 0`.
 
 ---
 
@@ -295,17 +292,36 @@ Format template:
 
 ---
 
-#### Task 8.3: Event Context Lock & Cross-Event Safety Guards
+#### Task 8.1: Login & Onboarding Screen
 - **Status**: [x]
-- **Priority**: Medium
+- **Priority**: High
 - **Description**:
-  - Add persistent visual indicators on EVERY screen showing the active event name and color-coded badge (each event gets a distinct accent color) so the user always knows which event they're operating on.
-  - Before critical operations (import tickets, delete all, scan), show a **confirmation dialog** that explicitly states the active event name: e.g., "Anda akan mengimpor tiket ke event **Konser Rock**. Lanjutkan?".
-  - In `GeneratorScreen`: if the "Direct insert to DB" checkbox (Task 3.3) is enabled, show the target event name prominently and require explicit confirmation.
-  - Prevent event switching while a scan session is actively in progress (require the user to explicitly "end" the scan session first).
-- **Affected files**: `ui/ScannerScreen.kt`, `ui/ManagementScreen.kt`, `ui/DatabaseScreen.kt`, `ui/GeneratorScreen.kt`, `ui/components/EventBadge.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The event badge component should be reusable across all screens. Use a consistent position (e.g., top-left or integrated into the top app bar) for muscle memory.
-- **Completion Notes**: Created `EventBadge.kt` using consistent dynamic colors. Added `EventBadge` and explicit event name confirmation dialogs to `DatabaseScreen` (Delete All), `ManagementScreen` (CSV/Manual Import), `GeneratorScreen` (Direct Insert), and `DashboardScreen` (Start Scan). Implemented event switch warning in `DashboardScreen` when `scannedTicketCount > 0`.
+  - Redesign the app entry flow:
+    1. `SplashScreen` → check if user is already signed in.
+    2. If NOT signed in → navigate to `LoginScreen` (Google Sign-In button, app logo, tagline).
+    3. If signed in → navigate to the new `DashboardScreen` (replaces current `MainMenuScreen`).
+  - After first-time sign-in, show a brief onboarding overlay or tooltip sequence explaining the app flow:
+    1. "Buat Event baru" → 2. "Generate tiket" → 3. "Distribusikan tiket" → 4. "Scan tiket di hari-H".
+  - Store a flag (`hasSeenOnboarding`) in local preferences so onboarding only shows once.
+- **Affected files**: `ui/LoginScreen.kt`, `ui/SplashScreen.kt`, `ui/OnboardingOverlay.kt (NEW)`, `MainActivity.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Onboarding text should be in Indonesian (Bahasa Indonesia). Keep it concise — maximum 4 steps/screens.
+- **Completion Notes**: Implemented `hasSeenOnboarding` flag in `AuthPreferences` and `AuthViewModel`. Created `OnboardingOverlay.kt` showing a 4-step wizard. Updated `MainActivity.kt` to route to `"onboarding"` before `"mainmenu"` for first-time sign-in. Redesigned `LoginScreen.kt` with logo, tagline, and better UI layout.
+
+---
+
+#### Task 7.2: Multi-Gate Conflict Prevention & Sync Indicator
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Handle the race condition scenario where two gates scan the same ticket within milliseconds:
+    - After writing `isScanned=TRUE` to Sheets, **immediately re-read** the row to confirm the write succeeded and no conflicting write occurred.
+    - If the `scannedAt` timestamp in Sheets doesn't match what this device just wrote, it means another device scanned it first → treat as `AlreadyScanned`.
+  - Add a "Last Synced: X seconds ago" indicator on the Scanner screen.
+  - Add a periodic background sync (every 10–15 seconds) that refreshes the local ticket cache from Sheets, so the scan counter ("Scan: X / Y") stays up-to-date across devices.
+  - Implement a "Sync Now" button on the Scanner screen for manual refresh.
+- **Affected files**: `ui/ScannerScreen.kt`, `data/repository/TicketRepository.kt`, `viewmodel/TicketViewModel.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The periodic sync should NOT block the UI or interfere with active scanning. Run it on a background coroutine. If sync fails silently (network blip), just skip and retry on the next interval.
+- **Completion Notes**: Added immediate re-read to `validateAndScanOnline` with a mismatch returning `AlreadyScanned`. Increased scan timeout to 5s. Added `lastSyncTime`, 12s periodic `syncJob`, and `syncScannerData()` to `TicketViewModel`. Updated `ScannerScreen` with a dynamic relative time pill and a manual sync button. Added `DisposableEffect` for starting and stopping the periodic sync loop.
 
 ---
 
@@ -326,24 +342,6 @@ Format template:
 - **Completion Notes**: Added `OnlineScanResult` sealed class and `validateAndScanOnline()` method to `TicketRepository` with a 3-second timeout via `withTimeout`. Refactored `TicketViewModel.processQrCode()` to use cloud-first validation. Added `ScanStatus.NetworkError`, `isOnline` and `isScanLoading` StateFlows. Updated `ScannerScreen` with an Online/Offline pill indicator, a loading spinner overlay during cloud round-trip, and an amber NetworkError dialog with "Coba Lagi" retry button. Also fixed two pre-existing bugs: missing `LaunchedEffect` import in `MainMenuScreen.kt` and incomplete `HistoryLogRepository` constructor in `AppModule.kt`.
 
 ---
-
-#### Task 7.2: Multi-Gate Conflict Prevention & Sync Indicator
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Handle the race condition scenario where two gates scan the same ticket within milliseconds:
-    - After writing `isScanned=TRUE` to Sheets, **immediately re-read** the row to confirm the write succeeded and no conflicting write occurred.
-    - If the `scannedAt` timestamp in Sheets doesn't match what this device just wrote, it means another device scanned it first → treat as `AlreadyScanned`.
-  - Add a "Last Synced: X seconds ago" indicator on the Scanner screen.
-  - Add a periodic background sync (every 10–15 seconds) that refreshes the local ticket cache from Sheets, so the scan counter ("Scan: X / Y") stays up-to-date across devices.
-  - Implement a "Sync Now" button on the Scanner screen for manual refresh.
-- **Affected files**: `ui/ScannerScreen.kt`, `data/repository/TicketRepository.kt`, `viewmodel/TicketViewModel.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The periodic sync should NOT block the UI or interfere with active scanning. Run it on a background coroutine. If sync fails silently (network blip), just skip and retry on the next interval.
-- **Completion Notes**: Added immediate re-read to `validateAndScanOnline` with a mismatch returning `AlreadyScanned`. Increased scan timeout to 5s. Added `lastSyncTime`, 12s periodic `syncJob`, and `syncScannerData()` to `TicketViewModel`. Updated `ScannerScreen` with a dynamic relative time pill and a manual sync button. Added `DisposableEffect` for starting and stopping the periodic sync loop.
-
----
-
-## COMPLETED TASKS
 
 #### Task 6.5: History Log Sync via Google Sheets
 - **Status**: [x]
@@ -451,6 +449,22 @@ Format template:
 
 ---
 
+#### Task 5.2: Google Sign-In Integration
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Add Google Sign-In using the Credential Manager API (modern replacement for legacy GoogleSignInClient).
+  - Request OAuth scopes: `https://www.googleapis.com/auth/spreadsheets` (read/write Sheets) and `https://www.googleapis.com/auth/drive.file` (read/write only files created by the app in Drive).
+  - Create a `LoginScreen` composable: Google Sign-In button, app branding, loading state.
+  - Create an `AuthViewModel` (or `AuthManager`) to manage sign-in state, access tokens, and token refresh.
+  - Store sign-in session state so the user doesn't need to re-login on every app launch.
+  - If not signed in → force redirect to `LoginScreen`. All other screens require auth.
+- **Affected files**: `ui/LoginScreen.kt (NEW)`, `viewmodel/AuthViewModel.kt (NEW)`, `MainActivity.kt`, `di/AppModule.kt`, `app/build.gradle.kts`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Register the app in Google Cloud Console, enable Sheets API v4 and Drive API v3, and configure OAuth consent screen. Add the SHA-1 fingerprint of the debug/release keystore to the Cloud Console credentials. UI text for the login screen should be in Indonesian (Bahasa Indonesia) as per app convention.
+- **Completion Notes**: Implemented Google Sign-In using Credential Manager API and GoogleIdTokenCredential. Created `AuthPreferences` for session token storage and `AuthViewModel` for auth state management. Added `LoginScreen` composable and updated `MainActivity.kt` with authentication guard routing.
+
+---
+
 #### Task 5.1: Repository Pattern Refactoring
 - **Status**: [x]
 - **Priority**: High
@@ -462,6 +476,29 @@ Format template:
 - **Affected files**: `data/repository/TicketRepository.kt (NEW)`, `data/repository/EventRepository.kt (NEW)`, `data/repository/HistoryLogRepository.kt (NEW)`, `viewmodel/TicketViewModel.kt`, `di/AppModule.kt`, `PROJECT_DOCUMENTATION.md`
 - **Notes**: This is a pure refactoring task. All existing app behavior must remain identical after this change. Run full manual regression test (import, scan, delete, undo, export, event switching) to verify.
 - **Completion Notes**: Created Repository classes and refactored TicketViewModel to inject them instead of DAOs directly. Also updated AppModule.kt to provide these repositories.
+
+---
+
+#### Task 4.3: Smart Detection & Alert for Cross-Event Ticket Scans
+- **Status**: [x]
+- **Priority**: Low
+- **Description**: 
+  - Display a distinct, specific error message if a scanned ticket belongs to a different event.
+  - Validate the scanned QR prefix against the active event's `eventCode`.
+- **Affected files**: `viewmodel/TicketViewModel.kt`, `ui/ScannerScreen.kt`
+- **Completion Notes**: Added `CrossEventError` to `ScanStatus` and validated `eventCode` in `TicketViewModel`.
+
+---
+
+#### Task 4.2: System-wide Full Capitalization & Emergency Manual Input
+- **Status**: [x]
+- **Priority**: Medium
+- **Description**: 
+  - Auto-uppercase across input fields: Event Code, Category, Scanner Manual Input (using `KeyboardCapitalization.Characters`).
+  - Strict 4-digit numpad for sequence numbers and strict 4-character keyboard for secret tokens on the Emergency Manual Input scanner dialog.
+  - Add `COLLATE NOCASE` to `TicketDao` queries and `.uppercase().trim()` in ViewModel to ensure case-insensitive validation.
+- **Affected files**: `ui/ScannerScreen.kt`, `ui/GeneratorScreen.kt`, `ui/EventSelectionDialog.kt`, `data/TicketDao.kt`, `viewmodel/TicketViewModel.kt`
+- **Completion Notes**: Rewrote manual input in Scanner to use sequence and token boxes plus category dropdown. Updated `TicketDao` with `COLLATE NOCASE`.
 
 ---
 
@@ -479,26 +516,37 @@ Format template:
 
 ---
 
-#### Task 4.2: System-wide Full Capitalization & Emergency Manual Input
+#### Task 3.4: Prevent Screen Timeout (KeepScreenOn) During Generation
 - **Status**: [x]
 - **Priority**: Medium
 - **Description**: 
-  - Auto-uppercase across input fields: Event Code, Category, Scanner Manual Input (using `KeyboardCapitalization.Characters`).
-  - Strict 4-digit numpad for sequence numbers and strict 4-character keyboard for secret tokens on the Emergency Manual Input scanner dialog.
-  - Add `COLLATE NOCASE` to `TicketDao` queries and `.uppercase().trim()` in ViewModel to ensure case-insensitive validation.
-- **Affected files**: `ui/ScannerScreen.kt`, `ui/GeneratorScreen.kt`, `ui/EventSelectionDialog.kt`, `data/TicketDao.kt`, `viewmodel/TicketViewModel.kt`
-- **Completion Notes**: Rewrote manual input in Scanner to use sequence and token boxes plus category dropdown. Updated `TicketDao` with `COLLATE NOCASE`.
+  - Keep the device display on (`FLAG_KEEP_SCREEN_ON`) while batch generation is in progress to prevent CPU throttling or OS killing background tasks.
+  - Clear the `KeepScreenOn` flag once generation completes or fails.
+- **Affected files**: `ui/GeneratorScreen.kt`
+- **Completion Notes**: Used `DisposableEffect` with `window.addFlags(FLAG_KEEP_SCREEN_ON)` during the `isGenerating` state.
 
 ---
 
-#### Task 4.3: Smart Detection & Alert for Cross-Event Ticket Scans
+#### Task 3.3: Direct Database Insertion Logic (via ViewModel)
 - **Status**: [x]
-- **Priority**: Low
+- **Priority**: High
 - **Description**: 
-  - Display a distinct, specific error message if a scanned ticket belongs to a different event.
-  - Validate the scanned QR prefix against the active event's `eventCode`.
-- **Affected files**: `viewmodel/TicketViewModel.kt`, `ui/ScannerScreen.kt`
-- **Completion Notes**: Added `CrossEventError` to `ScanStatus` and validated `eventCode` in `TicketViewModel`.
+  - Add a checkbox: "Directly insert tickets into active Event Database" in `GeneratorScreen`.
+  - Implement batch ticket insertion logic via `TicketViewModel` (following MVVM pattern, avoiding direct DAO calls from Composable UI).
+- **Affected files**: `ui/GeneratorScreen.kt`, `viewmodel/TicketViewModel.kt`, `PROJECT_DOCUMENTATION.md`
+- **Completion Notes**: Added `insertBatchTickets` in `TicketViewModel` and wired it to a checkbox in `GeneratorScreen`.
+
+---
+
+#### Task 3.2: Generator UI Form Revamp (Quota Mode)
+- **Status**: [x]
+- **Priority**: High
+- **Description**: 
+  - Build a "Quota Auto-Generate" input mode in `GeneratorScreen`.
+  - Input fields: Category, Quota Count, Prefix (Event Code), and Starting Sequence Number.
+  - Retain the existing manual text/CSV input mode.
+- **Affected files**: `ui/GeneratorScreen.kt`
+- **Completion Notes**: Implemented a TabRow to toggle between Manual CSV and Quota Mode.
 
 ---
 
@@ -516,50 +564,16 @@ Format template:
 
 ---
 
-#### Task 3.2: Generator UI Form Revamp (Quota Mode)
+#### Task 2.3: Event Profile UI Updates (Logo & Background Picker)
 - **Status**: [x]
 - **Priority**: High
 - **Description**: 
-  - Build a "Quota Auto-Generate" input mode in `GeneratorScreen`.
-  - Input fields: Category, Quota Count, Prefix (Event Code), and Starting Sequence Number.
-  - Retain the existing manual text/CSV input mode.
-- **Affected files**: `ui/GeneratorScreen.kt`
-- **Completion Notes**: Implemented a TabRow to toggle between Manual CSV and Quota Mode.
-
----
-
-#### Task 3.3: Direct Database Insertion Logic (via ViewModel)
-- **Status**: [x]
-- **Priority**: High
-- **Description**: 
-  - Add a checkbox: "Directly insert tickets into active Event Database" in `GeneratorScreen`.
-  - Implement batch ticket insertion logic via `TicketViewModel` (following MVVM pattern, avoiding direct DAO calls from Composable UI).
-- **Affected files**: `ui/GeneratorScreen.kt`, `viewmodel/TicketViewModel.kt`, `PROJECT_DOCUMENTATION.md`
-- **Completion Notes**: Added `insertBatchTickets` in `TicketViewModel` and wired it to a checkbox in `GeneratorScreen`.
-
----
-
-#### Task 3.4: Prevent Screen Timeout (KeepScreenOn) During Generation
-- **Status**: [x]
-- **Priority**: Medium
-- **Description**: 
-  - Keep the device display on (`FLAG_KEEP_SCREEN_ON`) while batch generation is in progress to prevent CPU throttling or OS killing background tasks.
-  - Clear the `KeepScreenOn` flag once generation completes or fails.
-- **Affected files**: `ui/GeneratorScreen.kt`
-- **Completion Notes**: Used `DisposableEffect` with `window.addFlags(FLAG_KEEP_SCREEN_ON)` during the `isGenerating` state.
-
----
-
-#### Task 2.1: Core QR Engine Upgrade (ZXing + Canvas)
-- **Status**: [x]
-- **Priority**: High
-- **Description**: 
-  - Update QR Code generation logic to support High Error Correction (Level H), ensuring scannability even with an embedded logo overlay.
-  - Add logic (using Android `Canvas`) to overlay the event logo at the center of the QR Code (maximum 20% of total QR area).
-  - Add Auto-Scaling HRI Text (human-readable ticket code printed beneath the QR code) that automatically scales down in font size if the text is too long.
-- **Affected files**: `utils/TicketExporter.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Ensure a white quiet-zone padding is preserved around the QR code boundary for optimal scanner detection.
-- **Completion Notes**: Integrated ZXing EncodeHintType.ERROR_CORRECTION H and used Canvas to overlay the logo bitmap in TicketExporter. Also implemented scaling for HRI text.
+  - Update `EventSelectionDialog.kt` to allow users to pick an event logo and background template image from the device gallery (using `ActivityResultContracts.GetContent()`).
+  - Save the selected image paths to the event record (`logoPath`, `bgPath`).
+  - Display the active event logo in the header UI (`MainMenuScreen` and `ScannerScreen`).
+- **Affected files**: `ui/EventSelectionDialog.kt`, `ui/MainMenuScreen.kt`, `ui/ScannerScreen.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Properly handle URI permissions or copy images to local app internal storage so paths remain permanently accessible across app restarts.
+- **Completion Notes**: Implemented image pickers in EventSelectionDialog, copying images to internal storage and updating ViewModel.
 
 ---
 
@@ -576,16 +590,28 @@ Format template:
 
 ---
 
-#### Task 2.3: Event Profile UI Updates (Logo & Background Picker)
+#### Task 2.1: Core QR Engine Upgrade (ZXing + Canvas)
 - **Status**: [x]
 - **Priority**: High
 - **Description**: 
-  - Update `EventSelectionDialog.kt` to allow users to pick an event logo and background template image from the device gallery (using `ActivityResultContracts.GetContent()`).
-  - Save the selected image paths to the event record (`logoPath`, `bgPath`).
-  - Display the active event logo in the header UI (`MainMenuScreen` and `ScannerScreen`).
-- **Affected files**: `ui/EventSelectionDialog.kt`, `ui/MainMenuScreen.kt`, `ui/ScannerScreen.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Properly handle URI permissions or copy images to local app internal storage so paths remain permanently accessible across app restarts.
-- **Completion Notes**: Implemented image pickers in EventSelectionDialog, copying images to internal storage and updating ViewModel.
+  - Update QR Code generation logic to support High Error Correction (Level H), ensuring scannability even with an embedded logo overlay.
+  - Add logic (using Android `Canvas`) to overlay the event logo at the center of the QR Code (maximum 20% of total QR area).
+  - Add Auto-Scaling HRI Text (human-readable ticket code printed beneath the QR code) that automatically scales down in font size if the text is too long.
+- **Affected files**: `utils/TicketExporter.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Ensure a white quiet-zone padding is preserved around the QR code boundary for optimal scanner detection.
+- **Completion Notes**: Integrated ZXing EncodeHintType.ERROR_CORRECTION H and used Canvas to overlay the logo bitmap in TicketExporter. Also implemented scaling for HRI text.
+
+---
+
+#### Task 1.2: Ticket Code Standardization & Core Generation Logic
+- **Status**: [x]
+- **Priority**: High
+- **Description**: 
+  - Create a utility function to format ticket codes into the standard format: `[PREFIX]-[CATEGORY]-[4-DIGIT]-[4-RANDOM]`.
+  - Implement a random token generator function that excludes ambiguous characters (`0`, `O`, `1`, `I`) to prevent optical misreading.
+- **Affected files**: `utils/TicketFormatters.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Create unit tests or self-verification functions where applicable.
+- **Completion Notes**: Implemented TicketFormatters object with generateRandomToken and formatTicketCode functions.
 
 ---
 
@@ -607,14 +633,3 @@ Format template:
 - **Notes**: Ensure migration script executes safely with valid default values for existing event records.
 - **Completion Notes**: Added columns to Event data class and created MIGRATION_10_11 in AppDatabase.
 
----
-
-#### Task 1.2: Ticket Code Standardization & Core Generation Logic
-- **Status**: [x]
-- **Priority**: High
-- **Description**: 
-  - Create a utility function to format ticket codes into the standard format: `[PREFIX]-[CATEGORY]-[4-DIGIT]-[4-RANDOM]`.
-  - Implement a random token generator function that excludes ambiguous characters (`0`, `O`, `1`, `I`) to prevent optical misreading.
-- **Affected files**: `utils/TicketFormatters.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Create unit tests or self-verification functions where applicable.
-- **Completion Notes**: Implemented TicketFormatters object with generateRandomToken and formatTicketCode functions.
