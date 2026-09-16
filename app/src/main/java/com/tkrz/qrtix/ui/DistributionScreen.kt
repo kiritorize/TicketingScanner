@@ -41,6 +41,7 @@ fun DistributionScreen(
     onNavigateBack: () -> Unit
 ) {
     var currentStep by remember { mutableStateOf(1) }
+    val ticketCategories by viewModel.ticketCategories.collectAsState()
     
     // Step 1 State
     var sheetUrl by remember { mutableStateOf("") }
@@ -71,6 +72,7 @@ fun DistributionScreen(
     var categoryMappings by remember { mutableStateOf<List<com.tkrz.qrtix.utils.CategoryMappingResult>>(emptyList()) }
     var manualCategorySelections by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -158,8 +160,7 @@ fun DistributionScreen(
                                         .toSet()
                                         .toList()
                                         
-                                    val dbCategories = viewModel.ticketCategories.value
-                                    categoryMappings = CategoryMatcher.mapCategories(uniqueFormCategories, dbCategories.map { it.categoryName })
+                                    categoryMappings = CategoryMatcher.mapCategories(uniqueFormCategories, ticketCategories.map { it.categoryName })
                                     
                                     // Initialize manual selections with auto-matched results
                                     manualCategorySelections = categoryMappings.associate { 
@@ -179,7 +180,7 @@ fun DistributionScreen(
                 )
                 3 -> Step3CategoryMapping(
                     mappings = categoryMappings,
-                    dbCategories = viewModel.ticketCategories.value.map { it.categoryName },
+                    dbCategories = ticketCategories.map { it.categoryName },
                     manualSelections = manualCategorySelections,
                     onSelectionChange = { formCat, dbCat -> 
                         val newSelections = manualCategorySelections.toMutableMap()
@@ -202,7 +203,7 @@ fun DistributionScreen(
                                     if (name.isBlank() && email.isBlank()) return@mapNotNull null
                                     
                                     val dbCatName = manualCategorySelections[formCat] ?: formCat
-                                    val dbCatCode = viewModel.ticketCategories.value.find { it.categoryName == dbCatName }?.categoryCode ?: dbCatName
+                                    val dbCatCode = ticketCategories.find { it.categoryName == dbCatName }?.categoryCode ?: dbCatName
                                     val qty = qtyStr.filter { it.isDigit() }.toIntOrNull() ?: 0
                                     
                                     com.tkrz.qrtix.data.BuyerData(name, email, dbCatCode, qty)
@@ -286,7 +287,7 @@ fun DistributionScreen(
                         },
                         onExport = {
                             distViewModel.exportReport(
-                                context = androidx.compose.ui.platform.LocalContext.current,
+                                context = context,
                                 spreadsheetId = sheetId,
                                 eventName = viewModel.activeEvent.value?.name ?: "Event"
                             )
@@ -372,7 +373,7 @@ fun Step1LinkSheet(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 isError = errorMessage != null,
-                colors = TextFieldDefaults.outlinedTextFieldColors(
+                colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = PrimaryColor,
                     focusedLabelColor = PrimaryColor
                 )
@@ -534,7 +535,7 @@ fun Step3CategoryMapping(
     val allMapped = manualSelections.values.all { it != null }
 
     Card(
-        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CardBg),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -754,7 +755,7 @@ fun Step4ReviewAndValidation(
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CardBg),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)

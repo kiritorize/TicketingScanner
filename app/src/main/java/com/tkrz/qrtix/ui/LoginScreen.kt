@@ -12,6 +12,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,13 +43,29 @@ fun LoginScreen(
     val hasSeenOnboarding by viewModel.hasSeenOnboarding.collectAsState()
     val context = LocalContext.current
 
+    val consentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewModel.retryInitialization()
+        } else {
+            viewModel.setAuthError("Izin akses ditolak. Aplikasi membutuhkan akses Google Drive & Sheets.")
+        }
+    }
+
     LaunchedEffect(authState) {
-        if (authState is AuthState.Authenticated) {
-            if (hasSeenOnboarding) {
-                onNavigateToMainMenu()
-            } else {
-                onNavigateToOnboarding()
+        when (val state = authState) {
+            is AuthState.Authenticated -> {
+                if (hasSeenOnboarding) {
+                    onNavigateToMainMenu()
+                } else {
+                    onNavigateToOnboarding()
+                }
             }
+            is AuthState.NeedsConsent -> {
+                consentLauncher.launch(state.intent)
+            }
+            else -> {}
         }
     }
 

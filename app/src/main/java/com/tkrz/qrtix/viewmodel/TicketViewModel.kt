@@ -46,6 +46,7 @@ class TicketViewModel @Inject constructor(
     private val sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
     private val driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
     val backgroundUploadManager: com.tkrz.qrtix.data.cloud.BackgroundUploadManager,
+    private val cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -333,7 +334,7 @@ class TicketViewModel @Inject constructor(
                 if (rootId != null) {
                     val folderId = driveFolderManager.getOrCreateFolder(oldName, rootId)
                     if (folderId != null) {
-                        driveFolderManager.renameFolder(folderId, newName, rootId)
+                        driveFolderManager.renameFolder(folderId, newName)
                     }
                 }
             }

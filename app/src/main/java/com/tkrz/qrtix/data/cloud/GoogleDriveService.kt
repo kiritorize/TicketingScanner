@@ -18,11 +18,10 @@ class GoogleDriveService @Inject constructor(
     private val jsonFactory = GsonFactory.getDefaultInstance()
     private val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
 
-    private val driveService: Drive by lazy {
-        Drive.Builder(httpTransport, jsonFactory, credentialManager.getCredential())
+    val driveService: Drive
+        get() = Drive.Builder(httpTransport, jsonFactory, credentialManager.getCredential())
             .setApplicationName("QRTix")
             .build()
-    }
 
     suspend fun uploadFile(name: String, mimeType: String, file: File, folderId: String? = null): String = withContext(Dispatchers.IO) {
         val fileMetadata = com.google.api.services.drive.model.File().apply {

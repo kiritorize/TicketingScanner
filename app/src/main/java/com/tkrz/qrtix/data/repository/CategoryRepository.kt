@@ -96,7 +96,7 @@ class CategoryRepository @Inject constructor(
             
             // Rewrite all
             if (finalData.isNotEmpty()) {
-                sheetsService.appendRow(spreadsheetId, "Categories!A2", finalData)
+                sheetsService.appendRows(spreadsheetId, "Categories!A2", finalData)
             }
         } catch (e: Exception) {
             e.printStackTrace()

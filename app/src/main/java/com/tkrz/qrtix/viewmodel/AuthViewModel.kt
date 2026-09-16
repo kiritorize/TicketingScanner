@@ -27,6 +27,7 @@ sealed class AuthState {
     object Loading : AuthState()
     data class Authenticated(val email: String, val displayName: String?) : AuthState()
     data class Error(val message: String) : AuthState()
+    data class NeedsConsent(val intent: android.content.Intent) : AuthState()
 }
 
 @HiltViewModel
@@ -52,12 +53,22 @@ class AuthViewModel @Inject constructor(
             _authState.value = AuthState.Authenticated("User", null)
             // Can trigger async spreadsheet initialization in background
             viewModelScope.launch {
-                spreadsheetManager.initializeSpreadsheet()
-                try {
-                    eventRepository.syncEventsFromCloud()
-                    historyLogRepository.syncLogsFromCloud()
-                } catch (e: Exception) {
-                    Log.e("AuthViewModel", "Event or Log sync failed", e)
+                val initResult = spreadsheetManager.initializeSpreadsheet()
+                if (initResult.isSuccess) {
+                    try {
+                        eventRepository.syncEventsFromCloud()
+                        historyLogRepository.syncLogsFromCloud()
+                    } catch (e: Exception) {
+                        Log.e("AuthViewModel", "Event or Log sync failed", e)
+                    }
+                } else {
+                    val ex = initResult.exceptionOrNull()
+                    if (ex is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
+                        Log.w("AuthViewModel", "Consent revoked, forcing sign out", ex)
+                        signOut()
+                    } else {
+                        Log.e("AuthViewModel", "Cloud init failed in background", ex)
+                    }
                 }
             }
         } else {
@@ -103,13 +114,23 @@ class AuthViewModel @Inject constructor(
             try {
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                 
-                // Successfully signed in
-                val email = googleIdTokenCredential.id
+                // Decode JWT to guarantee email extraction
+                var email = googleIdTokenCredential.id
+                try {
+                    val split = googleIdTokenCredential.idToken.split(".")
+                    if (split.size == 3) {
+                        val payload = String(android.util.Base64.decode(split[1], android.util.Base64.URL_SAFE))
+                        val jsonObject = org.json.JSONObject(payload)
+                        email = jsonObject.optString("email", email)
+                    }
+                } catch (e: Exception) {
+                    Log.e("AuthViewModel", "Failed to decode JWT email", e)
+                }
+
                 val displayName = googleIdTokenCredential.displayName
                 
                 authPreferences.setSignedIn(true, email)
                 
-                // Initialize spreadsheet
                 val initResult = spreadsheetManager.initializeSpreadsheet()
                 if (initResult.isSuccess) {
                     try {
@@ -122,9 +143,15 @@ class AuthViewModel @Inject constructor(
                         authPreferences.setSignedIn(false, null)
                     }
                 } else {
-                    Log.e("AuthViewModel", "Spreadsheet initialization failed", initResult.exceptionOrNull())
-                    _authState.value = AuthState.Error("Gagal menyiapkan database cloud: ${initResult.exceptionOrNull()?.message}")
-                    authPreferences.setSignedIn(false, null)
+                    val ex = initResult.exceptionOrNull()
+                    if (ex is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
+                        Log.w("AuthViewModel", "User consent required", ex)
+                        _authState.value = AuthState.NeedsConsent(ex.intent)
+                    } else {
+                        Log.e("AuthViewModel", "Cloud init failed completely", ex)
+                        _authState.value = AuthState.Error("Gagal menyiapkan database cloud: ${ex?.message}")
+                        authPreferences.setSignedIn(false, null)
+                    }
                 }
 
             } catch (e: Exception) {
@@ -140,5 +167,38 @@ class AuthViewModel @Inject constructor(
     fun signOut() {
         authPreferences.setSignedIn(false, null)
         _authState.value = AuthState.Idle
+    }
+
+    fun retryInitialization() {
+        viewModelScope.launch {
+            _authState.value = AuthState.Loading
+            val initResult = spreadsheetManager.initializeSpreadsheet()
+            if (initResult.isSuccess) {
+                try {
+                    eventRepository.syncEventsFromCloud()
+                    historyLogRepository.syncLogsFromCloud()
+                    val email = authPreferences.userEmail ?: "User"
+                    _authState.value = AuthState.Authenticated(email, null)
+                } catch (e: Exception) {
+                    Log.e("AuthViewModel", "Sync failed on retry", e)
+                    _authState.value = AuthState.Error("Gagal sinkronisasi data: ${e.message}")
+                    authPreferences.setSignedIn(false, null)
+                }
+            } else {
+                val ex = initResult.exceptionOrNull()
+                if (ex is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
+                    _authState.value = AuthState.NeedsConsent(ex.intent)
+                } else {
+                    Log.e("AuthViewModel", "Retry init failed", ex)
+                    _authState.value = AuthState.Error("Gagal menyiapkan database cloud: ${ex?.message}")
+                    authPreferences.setSignedIn(false, null)
+                }
+            }
+        }
+    }
+
+    fun setAuthError(message: String) {
+        _authState.value = AuthState.Error(message)
+        authPreferences.setSignedIn(false, null)
     }
 }

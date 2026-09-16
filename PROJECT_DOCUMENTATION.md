@@ -406,6 +406,7 @@ File: `app/src/main/AndroidManifest.xml`
 Format: `[YYYY-MM-DD] — Description of changes — (files changed/added/deleted)`
 
 ```
+[2026-09-17] — Bug Fix: Handled Google OAuth UserRecoverableAuthIOException for remote consent — (viewmodel/AuthViewModel.kt, ui/LoginScreen.kt)
 [2026-09-16] — Phase 9.1: Distribution Sheet Linking & Mapping — (ui/DistributionScreen.kt [NEW], utils/ColumnAutoDetector.kt [NEW], utils/CategoryMatcher.kt [NEW], MainActivity.kt, ui/DashboardScreen.kt, viewmodel/TicketViewModel.kt)
 [2026-09-16] — Phase 8.2 & 8.3: Dashboard Redesign & Event Safety Guards — (ui/DashboardScreen.kt [NEW], ui/components/EventBadge.kt [NEW], ui/ManagementScreen.kt, ui/DatabaseScreen.kt, ui/GeneratorScreen.kt, MainActivity.kt)
 [2026-09-16] — Phase 8.1: Login & Onboarding Screen — (ui/LoginScreen.kt, ui/OnboardingOverlay.kt [NEW], MainActivity.kt, data/AuthPreferences.kt, viewmodel/AuthViewModel.kt)

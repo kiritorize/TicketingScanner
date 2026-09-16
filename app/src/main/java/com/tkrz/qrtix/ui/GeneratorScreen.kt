@@ -57,6 +57,7 @@ fun GeneratorScreen(
     val context = LocalContext.current
     val activity = context as? android.app.Activity
     val scope = rememberCoroutineScope()
+    var pendingUploadTasks by remember { mutableStateOf<List<com.tkrz.qrtix.data.cloud.UploadTask>>(emptyList()) }
 
     fun executeGeneration() {
         val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault()).format(java.util.Date())
@@ -73,11 +74,11 @@ fun GeneratorScreen(
                 )
             }
             
-            val exporter = TicketExporter(context)
+            val exporter = com.tkrz.qrtix.utils.TicketExporter(context)
             val resolvedLogoPath = viewModel.resolveMedia(activeEvent?.logoPath)
             val eventForExport = activeEvent?.copy(logoPath = resolvedLogoPath)
 
-            val file = exporter.exportTicketsToZip(dummyTickets, eventForExport, fileName = zipName) { current, total ->
+            val (file, uploadTasks) = exporter.exportTicketsToZip(dummyTickets, eventForExport, fileName = zipName) { current, total ->
                 progressText = "Menghasilkan QR: $current / $total"
             }
             
@@ -91,6 +92,7 @@ fun GeneratorScreen(
             
             isGenerating = false
             if (file != null) {
+                pendingUploadTasks = uploadTasks
                 showFinishDialog = true
             }
         }
@@ -341,50 +343,8 @@ fun GeneratorScreen(
                         val duplicates = codeToRows.filter { it.value.size > 1 }
                         if (duplicates.isNotEmpty()) {
                             errorMessage = "Ditemukan kode duplikat dalam daftar. Harap perbaiki sebelum generate."
-    var showGenerateConfirmation by remember { mutableStateOf(false) }
-    var generateCodes by remember { mutableStateOf(emptyList<String>()) }
-    var generateCats by remember { mutableStateOf(emptyList<String>()) }
-
-    var pendingUploadTasks by remember { mutableStateOf<List<com.tkrz.qrtix.data.cloud.UploadTask>>(emptyList()) }
-
-    fun executeGeneration() {
-        val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault()).format(java.util.Date())
-        val zipName = "Qrtix_QR_Generated_$timeStamp.zip"
-
-        isGenerating = true
-        scope.launch {
-            val dummyTickets = generateCodes.mapIndexed { index, code ->
-                Ticket(
-                    qrContent = code,
-                    ticketType = generateCats[index],
-                    eventId = activeEvent?.id ?: 1L,
-                    createdAt = System.currentTimeMillis()
-                )
-            }
-            
-            val exporter = com.tkrz.qrtix.utils.TicketExporter(context)
-            val resolvedLogoPath = viewModel.resolveMedia(activeEvent?.logoPath)
-            val eventForExport = activeEvent?.copy(logoPath = resolvedLogoPath)
-
-            val (file, uploadTasks) = exporter.exportTicketsToZip(dummyTickets, eventForExport, fileName = zipName) { current, total ->
-                progressText = "Menghasilkan QR: $current / $total"
-            }
-            
-            if (directInsert && activeEvent != null) {
-                progressText = "Menyimpan ke Database..."
-                val addedCount = viewModel.insertBatchTickets(dummyTickets)
-                withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "$addedCount tiket ditambahkan ke database.", android.widget.Toast.LENGTH_LONG).show()
-                }
-            }
-            
-            isGenerating = false
-            if (file != null) {
-                pendingUploadTasks = uploadTasks
-                showFinishDialog = true
-            }
-        }
-    }
+                            return@Button
+                        }
 
                         if (directInsert) {
                             generateCodes = codes

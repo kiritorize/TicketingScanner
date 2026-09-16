@@ -21,9 +21,10 @@ class GoogleCredentialManager @Inject constructor(
             listOf(SheetsScopes.SPREADSHEETS, DriveScopes.DRIVE_FILE, GmailScopes.GMAIL_SEND)
         )
         val email = authPreferences.userEmail
-        if (!email.isNullOrEmpty()) {
-            credential.selectedAccountName = email
+        if (email.isNullOrEmpty()) {
+            throw IllegalStateException("User email is missing or empty! Cannot authenticate.")
         }
+        credential.setSelectedAccount(android.accounts.Account(email, "com.google"))
         return credential
     }
 }

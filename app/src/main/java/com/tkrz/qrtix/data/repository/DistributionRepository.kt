@@ -215,7 +215,7 @@ class DistributionRepository @Inject constructor(
             // But we know it's either empty (newly created) or we shouldn't be overwriting it anyway.
             // Actually, if it was just created, appendRows is fine.
             // Apply conditional formatting
-            applyConditionalFormatting(spreadsheetId, sheetId)
+            sheetId?.let { applyConditionalFormatting(spreadsheetId, it) }
 
             true
         } catch (e: Exception) {

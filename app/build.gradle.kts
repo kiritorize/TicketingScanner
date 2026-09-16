@@ -46,6 +46,8 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/NOTICE.md"
         }
     }
 }
@@ -99,7 +101,7 @@ dependencies {
     implementation("com.google.api-client:google-api-client-android:1.35.0")
     implementation("com.google.apis:google-api-services-sheets:v4-rev20230815-2.0.0")
     implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0")
-    implementation("com.google.apis:google-api-services-gmail:v1-rev20230822-2.0.0")
+    implementation("com.google.apis:google-api-services-gmail:v1-rev20220404-2.0.0")
     implementation("com.google.http-client:google-http-client-gson:1.43.3")
 
     // JavaMail (for constructing MIME messages locally)

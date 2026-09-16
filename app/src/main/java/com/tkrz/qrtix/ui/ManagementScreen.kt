@@ -86,6 +86,7 @@ fun ManagementScreen(
 ) {
     var codeInput by remember { mutableStateOf("") }
     var catInput by remember { mutableStateOf("") }
+    var showCsvConfirmation by remember { mutableStateOf(false) }
     var importResultMessage by remember { mutableStateOf<String?>(null) }
     val ticketCount by viewModel.ticketCount.collectAsState()
     val ticketList by viewModel.ticketList.collectAsState()

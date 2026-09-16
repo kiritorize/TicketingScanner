@@ -45,7 +45,7 @@ class TicketExporter(private val context: Context) {
             }
 
             val uri = resolver.insert(android.provider.MediaStore.Files.getContentUri("external"), contentValues)
-                ?: return@withContext null
+                ?: return@withContext Pair(null, emptyList())
 
             resolver.openOutputStream(uri)?.use { outputStream ->
                 val zipOutputStream = ZipOutputStream(BufferedOutputStream(outputStream))

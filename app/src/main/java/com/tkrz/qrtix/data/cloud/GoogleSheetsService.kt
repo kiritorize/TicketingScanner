@@ -17,11 +17,10 @@ class GoogleSheetsService @Inject constructor(
     private val jsonFactory = GsonFactory.getDefaultInstance()
     private val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
 
-    private val sheetsService: Sheets by lazy {
-        Sheets.Builder(httpTransport, jsonFactory, credentialManager.getCredential())
+    val sheetsService: Sheets
+        get() = Sheets.Builder(httpTransport, jsonFactory, credentialManager.getCredential())
             .setApplicationName("QRTix")
             .build()
-    }
 
     private suspend fun <T> withRetry(block: suspend () -> T): T {
         var currentDelay = 1000L
@@ -88,6 +87,14 @@ class GoogleSheetsService @Inject constructor(
             sheetsService.spreadsheets().values()
                 .append(spreadsheetId, range, valueRange)
                 .setValueInputOption("USER_ENTERED")
+                .execute()
+        }
+    }
+
+    suspend fun clearRange(spreadsheetId: String, range: String) = withContext(Dispatchers.IO) {
+        withRetry {
+            sheetsService.spreadsheets().values()
+                .clear(spreadsheetId, range, ClearValuesRequest())
                 .execute()
         }
     }

@@ -37,8 +37,7 @@ Format template:
 -->
 
 ### Phase 1: Database & Data Foundation
-
-
+*(All tasks completed, see COMPLETED TASKS section)*
 
 ### Phase 2: Core QR Engine & Visual UI
 *(All tasks completed, see COMPLETED TASKS section)*
@@ -46,113 +45,87 @@ Format template:
 ### Phase 3: Generator & Exporter
 *(All tasks completed, see COMPLETED TASKS section)*
 
----
-
 ### Phase 4: Scanner & Validation Optimization
 *(All tasks completed, see COMPLETED TASKS section)*
 
 ### Phase 5: Architecture Refactoring & Google Auth Foundation
 *(All tasks completed, see COMPLETED TASKS section)*
 
----
-
 ### Phase 6: Cloud Data Integration (Google Sheets & Drive)
-
-
-
-
-
-
+*(All tasks completed, see COMPLETED TASKS section)*
 
 ### Phase 7: Real-Time Multi-Device Scanning
-
-#### Task 7.1: Online Ticket Validation via Sheets API
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Modify the scan validation flow in `TicketRepository` (called by `TicketViewModel.processQrCode()`) to validate tickets **directly against Google Sheets in real-time** instead of local SQLite.
-  - Scan flow:
-    1. Read the ticket row from the `Tickets` sheet by matching `qrContent` + `eventId` (use Sheets API `values.get` with a filtered range or search through cached data + confirm with a targeted read).
-    2. If not found → `ScanStatus.Invalid`.
-    3. If found and `isScanned` = TRUE → `ScanStatus.AlreadyScanned`.
-    4. If found and `isScanned` = FALSE → **immediately write** `isScanned=TRUE` and `scannedAt=<timestamp>` to the Sheets row → `ScanStatus.Success`.
-  - Update local cache after successful scan.
-  - Display a subtle "Online" / "Connected" indicator on the Scanner screen so the operator knows real-time validation is active.
-- **Affected files**: `data/repository/TicketRepository.kt`, `viewmodel/TicketViewModel.kt`, `ui/ScannerScreen.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The entire scan round-trip (read + write to Sheets) should target under 1 second. If network latency exceeds 3 seconds, show a timeout error and allow retry. Implement a loading/spinner state on the scan UI between scan detection and result display.
-- **Completion Notes**: Added `OnlineScanResult` sealed class and `validateAndScanOnline()` method to `TicketRepository` with a 3-second timeout via `withTimeout`. Refactored `TicketViewModel.processQrCode()` to use cloud-first validation. Added `ScanStatus.NetworkError`, `isOnline` and `isScanLoading` StateFlows. Updated `ScannerScreen` with an Online/Offline pill indicator, a loading spinner overlay during cloud round-trip, and an amber NetworkError dialog with "Coba Lagi" retry button. Also fixed two pre-existing bugs: missing `LaunchedEffect` import in `MainMenuScreen.kt` and incomplete `HistoryLogRepository` constructor in `AppModule.kt`.
-
----
-
-#### Task 7.2: Multi-Gate Conflict Prevention & Sync Indicator
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Handle the race condition scenario where two gates scan the same ticket within milliseconds:
-    - After writing `isScanned=TRUE` to Sheets, **immediately re-read** the row to confirm the write succeeded and no conflicting write occurred.
-    - If the `scannedAt` timestamp in Sheets doesn't match what this device just wrote, it means another device scanned it first → treat as `AlreadyScanned`.
-  - Add a "Last Synced: X seconds ago" indicator on the Scanner screen.
-  - Add a periodic background sync (every 10–15 seconds) that refreshes the local ticket cache from Sheets, so the scan counter ("Scan: X / Y") stays up-to-date across devices.
-  - Implement a "Sync Now" button on the Scanner screen for manual refresh.
-- **Affected files**: `ui/ScannerScreen.kt`, `data/repository/TicketRepository.kt`, `viewmodel/TicketViewModel.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The periodic sync should NOT block the UI or interfere with active scanning. Run it on a background coroutine. If sync fails silently (network blip), just skip and retry on the next interval.
-- **Completion Notes**: Added immediate re-read to `validateAndScanOnline` with a mismatch returning `AlreadyScanned`. Increased scan timeout to 5s. Added `lastSyncTime`, 12s periodic `syncJob`, and `syncScannerData()` to `TicketViewModel`. Updated `ScannerScreen` with a dynamic relative time pill and a manual sync button. Added `DisposableEffect` for starting and stopping the periodic sync loop.
-
----
+*(All tasks completed, see COMPLETED TASKS section)*
 
 ### Phase 8: UI/UX Flow Redesign
-
-#### Task 8.1: Login & Onboarding Screen
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Redesign the app entry flow:
-    1. `SplashScreen` → check if user is already signed in.
-    2. If NOT signed in → navigate to `LoginScreen` (Google Sign-In button, app logo, tagline).
-    3. If signed in → navigate to the new `DashboardScreen` (replaces current `MainMenuScreen`).
-  - After first-time sign-in, show a brief onboarding overlay or tooltip sequence explaining the app flow:
-    1. "Buat Event baru" → 2. "Generate tiket" → 3. "Distribusikan tiket" → 4. "Scan tiket di hari-H".
-  - Store a flag (`hasSeenOnboarding`) in local preferences so onboarding only shows once.
-- **Affected files**: `ui/LoginScreen.kt`, `ui/SplashScreen.kt`, `ui/OnboardingOverlay.kt (NEW)`, `MainActivity.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Onboarding text should be in Indonesian (Bahasa Indonesia). Keep it concise — maximum 4 steps/screens.
-- **Completion Notes**: Implemented `hasSeenOnboarding` flag in `AuthPreferences` and `AuthViewModel`. Created `OnboardingOverlay.kt` showing a 4-step wizard. Updated `MainActivity.kt` to route to `"onboarding"` before `"mainmenu"` for first-time sign-in. Redesigned `LoginScreen.kt` with logo, tagline, and better UI layout.
-
----
-
-#### Task 8.2: Event-Centric Dashboard Navigation Redesign
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Replace the current `MainMenuScreen` (4 equal buttons) with a new `DashboardScreen` that is **event-centric**:
-    - Top section: Active event card (name, logo, ticket count, scanned count, event code). Tap to switch/manage events.
-    - Primary action area: Context-aware buttons that guide the user based on event state:
-      - If event has 0 tickets → prominently show "Generate Tiket" / "Import Tiket" buttons.
-      - If event has tickets but 0 scanned → show "Mulai Scan" as primary button.
-      - If event is mid-scan → show scan progress and "Lanjutkan Scan" button.
-    - Secondary actions: "Lihat Database", "Generator", "Pengaturan Event" as smaller/secondary buttons.
-    - Bottom: Sync status indicator (last synced, online/offline badge).
-  - This ensures the user always knows **what to do next** without guessing.
-- **Affected files**: `ui/DashboardScreen.kt (NEW)`, `ui/MainMenuScreen.kt (DEPRECATED/REPLACED)`, `MainActivity.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The current `MainMenuScreen.kt` can be kept as a fallback or deleted after the new dashboard is verified to be fully functional. The dashboard should feel like a "control center" for the active event.
-- **Completion Notes**: Created `DashboardScreen.kt` implementing the dynamic UI logic. Replaced `MainMenuScreen` in `MainActivity.kt` routes. 
-
----
-
-#### Task 8.3: Event Context Lock & Cross-Event Safety Guards
-- **Status**: [x]
-- **Priority**: Medium
-- **Description**:
-  - Add persistent visual indicators on EVERY screen showing the active event name and color-coded badge (each event gets a distinct accent color) so the user always knows which event they're operating on.
-  - Before critical operations (import tickets, delete all, scan), show a **confirmation dialog** that explicitly states the active event name: e.g., "Anda akan mengimpor tiket ke event **Konser Rock**. Lanjutkan?".
-  - In `GeneratorScreen`: if the "Direct insert to DB" checkbox (Task 3.3) is enabled, show the target event name prominently and require explicit confirmation.
-  - Prevent event switching while a scan session is actively in progress (require the user to explicitly "end" the scan session first).
-- **Affected files**: `ui/ScannerScreen.kt`, `ui/ManagementScreen.kt`, `ui/DatabaseScreen.kt`, `ui/GeneratorScreen.kt`, `ui/components/EventBadge.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: The event badge component should be reusable across all screens. Use a consistent position (e.g., top-left or integrated into the top app bar) for muscle memory.
-- **Completion Notes**: Created `EventBadge.kt` using consistent dynamic colors. Added `EventBadge` and explicit event name confirmation dialogs to `DatabaseScreen` (Delete All), `ManagementScreen` (CSV/Manual Import), `GeneratorScreen` (Direct Insert), and `DashboardScreen` (Start Scan). Implemented event switch warning in `DashboardScreen` when `scannedTicketCount > 0`.
-
----
+*(All tasks completed, see COMPLETED TASKS section)*
 
 ### Phase 9: Ticket Distribution via Email
+*(All tasks completed, see COMPLETED TASKS section)*
+
+### Phase 9.5: Ticket Category Architecture Refactoring
+*(All tasks completed, see COMPLETED TASKS section)*
+
+### Phase 10: Cloud Backup & Synchronization
+*(All tasks completed, see COMPLETED TASKS section)*
+
+---
+
+## COMPLETED TASKS
+
+#### Task 10.1: Full Event Cloud Backup
+- **Status**: [x]
+- **Priority**: Low
+- **Description**:
+  - Implement background uploading of QR images to Google Drive.
+  - Create dynamic nested folder structures based on Event Name and Ticket Category.
+  - Add real-time folder renaming on Drive when event name changes.
+  - Export entire event data (tickets, logs, and optionally all generated QR codes) to Google Drive.
+  - Provide an option to upload all generated QR code images to a specific user Drive folder.
+  - Generate a backup metadata file containing total tickets, total size, etc.
+- **Affected files**: `PROJECT_DOCUMENTATION.md`, `utils/TicketExporter.kt`, `data/cloud/MediaManager.kt`
+- **Completion Notes**: Completed 16-Sep-2026.
+
+---
+
+#### Task 9.5.1: Database & Cloud Schema (Step 1)
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Separate Category Name and Category ID to support mutable names with immutable IDs.
+  - Create `TicketCategory` entity and `CategoryDao`.
+  - Update `AppDatabase` migration to v13.
+  - Update `SpreadsheetManager` to create a `Categories` sheet in Google Sheets.
+- **Affected files**: `data/TicketCategory.kt`, `data/CategoryDao.kt`, `data/AppDatabase.kt`, `data/cloud/SpreadsheetManager.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Do not touch UI logic yet. Ensure backward compatibility with existing databases via proper Room migration.
+- **Completion Notes**: Created `TicketCategory` entity and `CategoryDao`. Added `MIGRATION_12_13` to `AppDatabase` creating the `categories` table. Updated `SpreadsheetManager` to create the `Categories` sheet upon spreadsheet initialization.
+
+---
+
+#### Task 9.5.2: Repository & State Management (Step 2)
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Implement `CategoryRepository` for SQLite operations and Google Sheets synchronization.
+  - Update `TicketViewModel` to expose a `StateFlow` of `TicketCategory` for the active event.
+  - Integrate category sync into `syncTicketsFromCloud()`.
+- **Affected files**: `data/repository/CategoryRepository.kt`, `di/AppModule.kt`, `viewmodel/TicketViewModel.kt`
+- **Completion Notes**: Created `CategoryRepository` with bi-directional sync logic to the `Categories` sheet. Injected via `AppModule`. Added CRUD methods and `ticketCategories` StateFlow to `TicketViewModel`.
+
+---
+
+#### Task 9.5.3: UI Implementation & Migration (Step 3)
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Implement `CategoryManagementDialog` for CRUD operations on categories (accessible via `DashboardScreen`).
+  - Update `GeneratorScreen` (Mode Kuota) to use a Dropdown menu driven by registered categories.
+  - Add validation to `GeneratorScreen` (Mode CSV) and `ManagementScreen` to ensure manually pasted categories map strictly to valid Category Codes.
+  - Update `DistributionScreen` to leverage the new category names and properly map back to the immutable Category Codes for assignment.
+- **Affected files**: `ui/CategoryManagementDialog.kt`, `ui/DashboardScreen.kt`, `ui/GeneratorScreen.kt`, `ui/ManagementScreen.kt`, `ui/DistributionScreen.kt`
+- **Completion Notes**: Added full UI layer for managing Category Name vs Code. Removed free-text category input from Generator's Mode Kuota. Enforced strict validation for pasted codes in Management and CSV Mode.
+
+---
 
 #### Task 9.1: Google Form Response Sheet Linking, Auto-Detect Column Mapping & Category Mapping
 - **Status**: [x]
@@ -230,7 +203,6 @@ Format template:
 - **Notes**: If the user returns to Step 3 after distribution has already been confirmed (mapping frozen in Sheets), load the existing mapping from the `Distribution` sheet instead of re-generating. Show a notice: "Distribusi sudah dikonfirmasi sebelumnya."
 - **Completion Notes**: Created `BuyerData`, `DistributionAssignment`, `ValidationResult` in `Distribution.kt`. Implemented `DistributionRepository.kt` to handle frozen mapping detection, 3-layer validation, deterministic assignment, and saving to Sheets via `GoogleSheetsService`. Created `DistributionViewModel.kt` injected via Hilt in `AppModule.kt`. Refactored `DistributionScreen.kt` to transition to Step 4 (Review & Validation) UI with summary cards and validation errors preview.
 
-
 ---
 
 #### Task 9.3: Gmail API Integration & Batch Email Sending
@@ -287,59 +259,87 @@ Format template:
 
 ---
 
-### Phase 9.5: Ticket Category Architecture Refactoring
-
-#### Task 9.5.1: Database & Cloud Schema (Step 1)
-- **Status**: [/]
+#### Task 8.1: Login & Onboarding Screen
+- **Status**: [x]
 - **Priority**: High
 - **Description**:
-  - Separate Category Name and Category ID to support mutable names with immutable IDs.
-  - Create `TicketCategory` entity and `CategoryDao`.
-  - Update `AppDatabase` migration to v13.
-  - Update `SpreadsheetManager` to create a `Categories` sheet in Google Sheets.
-- **Affected files**: `data/TicketCategory.kt`, `data/CategoryDao.kt`, `data/AppDatabase.kt`, `data/cloud/SpreadsheetManager.kt`, `PROJECT_DOCUMENTATION.md`
-- **Notes**: Do not touch UI logic yet. Ensure backward compatibility with existing databases via proper Room migration.
-- **Completion Notes**: Created `TicketCategory` entity and `CategoryDao`. Added `MIGRATION_12_13` to `AppDatabase` creating the `categories` table. Updated `SpreadsheetManager` to create the `Categories` sheet upon spreadsheet initialization.
+  - Redesign the app entry flow:
+    1. `SplashScreen` → check if user is already signed in.
+    2. If NOT signed in → navigate to `LoginScreen` (Google Sign-In button, app logo, tagline).
+    3. If signed in → navigate to the new `DashboardScreen` (replaces current `MainMenuScreen`).
+  - After first-time sign-in, show a brief onboarding overlay or tooltip sequence explaining the app flow:
+    1. "Buat Event baru" → 2. "Generate tiket" → 3. "Distribusikan tiket" → 4. "Scan tiket di hari-H".
+  - Store a flag (`hasSeenOnboarding`) in local preferences so onboarding only shows once.
+- **Affected files**: `ui/LoginScreen.kt`, `ui/SplashScreen.kt`, `ui/OnboardingOverlay.kt (NEW)`, `MainActivity.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Onboarding text should be in Indonesian (Bahasa Indonesia). Keep it concise — maximum 4 steps/screens.
+- **Completion Notes**: Implemented `hasSeenOnboarding` flag in `AuthPreferences` and `AuthViewModel`. Created `OnboardingOverlay.kt` showing a 4-step wizard. Updated `MainActivity.kt` to route to `"onboarding"` before `"mainmenu"` for first-time sign-in. Redesigned `LoginScreen.kt` with logo, tagline, and better UI layout.
 
 ---
 
-#### Task 9.5.2: Repository & State Management (Step 2)
+#### Task 8.2: Event-Centric Dashboard Navigation Redesign
 - **Status**: [x]
 - **Priority**: High
 - **Description**:
-  - Implement `CategoryRepository` for SQLite operations and Google Sheets synchronization.
-  - Update `TicketViewModel` to expose a `StateFlow` of `TicketCategory` for the active event.
-  - Integrate category sync into `syncTicketsFromCloud()`.
-- **Affected files**: `data/repository/CategoryRepository.kt`, `di/AppModule.kt`, `viewmodel/TicketViewModel.kt`
-- **Completion Notes**: Created `CategoryRepository` with bi-directional sync logic to the `Categories` sheet. Injected via `AppModule`. Added CRUD methods and `ticketCategories` StateFlow to `TicketViewModel`.
-
-#### Task 9.5.3: UI Implementation & Migration (Step 3)
-- **Status**: [x]
-- **Priority**: High
-- **Description**:
-  - Implement `CategoryManagementDialog` for CRUD operations on categories (accessible via `DashboardScreen`).
-  - Update `GeneratorScreen` (Mode Kuota) to use a Dropdown menu driven by registered categories.
-  - Add validation to `GeneratorScreen` (Mode CSV) and `ManagementScreen` to ensure manually pasted categories map strictly to valid Category Codes.
-  - Update `DistributionScreen` to leverage the new category names and properly map back to the immutable Category Codes for assignment.
-- **Affected files**: `ui/CategoryManagementDialog.kt`, `ui/DashboardScreen.kt`, `ui/GeneratorScreen.kt`, `ui/ManagementScreen.kt`, `ui/DistributionScreen.kt`
-- **Completion Notes**: Added full UI layer for managing Category Name vs Code. Removed free-text category input from Generator's Mode Kuota. Enforced strict validation for pasted codes in Management and CSV Mode.
+  - Replace the current `MainMenuScreen` (4 equal buttons) with a new `DashboardScreen` that is **event-centric**:
+    - Top section: Active event card (name, logo, ticket count, scanned count, event code). Tap to switch/manage events.
+    - Primary action area: Context-aware buttons that guide the user based on event state:
+      - If event has 0 tickets → prominently show "Generate Tiket" / "Import Tiket" buttons.
+      - If event has tickets but 0 scanned → show "Mulai Scan" as primary button.
+      - If event is mid-scan → show scan progress and "Lanjutkan Scan" button.
+    - Secondary actions: "Lihat Database", "Generator", "Pengaturan Event" as smaller/secondary buttons.
+    - Bottom: Sync status indicator (last synced, online/offline badge).
+  - This ensures the user always knows **what to do next** without guessing.
+- **Affected files**: `ui/DashboardScreen.kt (NEW)`, `ui/MainMenuScreen.kt (DEPRECATED/REPLACED)`, `MainActivity.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The current `MainMenuScreen.kt` can be kept as a fallback or deleted after the new dashboard is verified to be fully functional. The dashboard should feel like a "control center" for the active event.
+- **Completion Notes**: Created `DashboardScreen.kt` implementing the dynamic UI logic. Replaced `MainMenuScreen` in `MainActivity.kt` routes. 
 
 ---
 
-### Phase 10: Cloud Backup & Synchronization
-
-#### Task 10.1: Full Event Cloud Backup
+#### Task 8.3: Event Context Lock & Cross-Event Safety Guards
 - **Status**: [x]
-- **Priority**: Low
+- **Priority**: Medium
 - **Description**:
-  - Implement background uploading of QR images to Google Drive.
-  - Create dynamic nested folder structures based on Event Name and Ticket Category.
-  - Add real-time folder renaming on Drive when event name changes.
-  - Export entire event data (tickets, logs, and optionally all generated QR codes) to Google Drive.
-  - Provide an option to upload all generated QR code images to a specific user Drive folder.
-  - Generate a backup metadata file containing total tickets, total size, etc.
-- **Affected files**: `PROJECT_DOCUMENTATION.md`, `utils/TicketExporter.kt`, `data/cloud/MediaManager.kt`
-- **Completion Notes**: Completed 16-Sep-2026.
+  - Add persistent visual indicators on EVERY screen showing the active event name and color-coded badge (each event gets a distinct accent color) so the user always knows which event they're operating on.
+  - Before critical operations (import tickets, delete all, scan), show a **confirmation dialog** that explicitly states the active event name: e.g., "Anda akan mengimpor tiket ke event **Konser Rock**. Lanjutkan?".
+  - In `GeneratorScreen`: if the "Direct insert to DB" checkbox (Task 3.3) is enabled, show the target event name prominently and require explicit confirmation.
+  - Prevent event switching while a scan session is actively in progress (require the user to explicitly "end" the scan session first).
+- **Affected files**: `ui/ScannerScreen.kt`, `ui/ManagementScreen.kt`, `ui/DatabaseScreen.kt`, `ui/GeneratorScreen.kt`, `ui/components/EventBadge.kt (NEW)`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The event badge component should be reusable across all screens. Use a consistent position (e.g., top-left or integrated into the top app bar) for muscle memory.
+- **Completion Notes**: Created `EventBadge.kt` using consistent dynamic colors. Added `EventBadge` and explicit event name confirmation dialogs to `DatabaseScreen` (Delete All), `ManagementScreen` (CSV/Manual Import), `GeneratorScreen` (Direct Insert), and `DashboardScreen` (Start Scan). Implemented event switch warning in `DashboardScreen` when `scannedTicketCount > 0`.
+
+---
+
+#### Task 7.1: Online Ticket Validation via Sheets API
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Modify the scan validation flow in `TicketRepository` (called by `TicketViewModel.processQrCode()`) to validate tickets **directly against Google Sheets in real-time** instead of local SQLite.
+  - Scan flow:
+    1. Read the ticket row from the `Tickets` sheet by matching `qrContent` + `eventId` (use Sheets API `values.get` with a filtered range or search through cached data + confirm with a targeted read).
+    2. If not found → `ScanStatus.Invalid`.
+    3. If found and `isScanned` = TRUE → `ScanStatus.AlreadyScanned`.
+    4. If found and `isScanned` = FALSE → **immediately write** `isScanned=TRUE` and `scannedAt=<timestamp>` to the Sheets row → `ScanStatus.Success`.
+  - Update local cache after successful scan.
+  - Display a subtle "Online" / "Connected" indicator on the Scanner screen so the operator knows real-time validation is active.
+- **Affected files**: `data/repository/TicketRepository.kt`, `viewmodel/TicketViewModel.kt`, `ui/ScannerScreen.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The entire scan round-trip (read + write to Sheets) should target under 1 second. If network latency exceeds 3 seconds, show a timeout error and allow retry. Implement a loading/spinner state on the scan UI between scan detection and result display.
+- **Completion Notes**: Added `OnlineScanResult` sealed class and `validateAndScanOnline()` method to `TicketRepository` with a 3-second timeout via `withTimeout`. Refactored `TicketViewModel.processQrCode()` to use cloud-first validation. Added `ScanStatus.NetworkError`, `isOnline` and `isScanLoading` StateFlows. Updated `ScannerScreen` with an Online/Offline pill indicator, a loading spinner overlay during cloud round-trip, and an amber NetworkError dialog with "Coba Lagi" retry button. Also fixed two pre-existing bugs: missing `LaunchedEffect` import in `MainMenuScreen.kt` and incomplete `HistoryLogRepository` constructor in `AppModule.kt`.
+
+---
+
+#### Task 7.2: Multi-Gate Conflict Prevention & Sync Indicator
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Handle the race condition scenario where two gates scan the same ticket within milliseconds:
+    - After writing `isScanned=TRUE` to Sheets, **immediately re-read** the row to confirm the write succeeded and no conflicting write occurred.
+    - If the `scannedAt` timestamp in Sheets doesn't match what this device just wrote, it means another device scanned it first → treat as `AlreadyScanned`.
+  - Add a "Last Synced: X seconds ago" indicator on the Scanner screen.
+  - Add a periodic background sync (every 10–15 seconds) that refreshes the local ticket cache from Sheets, so the scan counter ("Scan: X / Y") stays up-to-date across devices.
+  - Implement a "Sync Now" button on the Scanner screen for manual refresh.
+- **Affected files**: `ui/ScannerScreen.kt`, `data/repository/TicketRepository.kt`, `viewmodel/TicketViewModel.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: The periodic sync should NOT block the UI or interfere with active scanning. Run it on a background coroutine. If sync fails silently (network blip), just skip and retry on the next interval.
+- **Completion Notes**: Added immediate re-read to `validateAndScanOnline` with a mismatch returning `AlreadyScanned`. Increased scan timeout to 5s. Added `lastSyncTime`, 12s periodic `syncJob`, and `syncScannerData()` to `TicketViewModel`. Updated `ScannerScreen` with a dynamic relative time pill and a manual sync button. Added `DisposableEffect` for starting and stopping the periodic sync loop.
 
 ---
 
@@ -422,6 +422,20 @@ Format template:
 
 ---
 
+#### Task 5.4: Google OAuth Remote Consent Handling (Bug Fix)
+- **Status**: [x]
+- **Priority**: High
+- **Description**:
+  - Handle `UserRecoverableAuthIOException` during the initial Google Cloud API calls (e.g., Google Drive/Sheets initialization).
+  - Modify `AuthViewModel` to catch this exception and emit a new `AuthState.NeedsConsent(intent)`.
+  - Update `LoginScreen` to observe `NeedsConsent` and launch the provided Intent via `ActivityResultContracts.StartActivityForResult()`, prompting the user for remote consent.
+  - Add a `retryInitialization()` function to attempt cloud initialization again after the user grants consent.
+- **Affected files**: `viewmodel/AuthViewModel.kt`, `ui/LoginScreen.kt`, `PROJECT_DOCUMENTATION.md`
+- **Notes**: Resolves the "NeedRemoteConsent" crash that occurs when the app first tries to access Drive/Sheets before explicit permission is granted via OAuth consent screen.
+- **Completion Notes**: Completed 17-Sep-2026. Handled the `UserRecoverableAuthIOException` and correctly triggered the consent dialog from Compose UI.
+
+---
+
 #### Task 5.3: Google API Service Layer Setup
 - **Status**: [x]
 - **Priority**: High
@@ -487,6 +501,8 @@ Format template:
 - **Completion Notes**: Added `CrossEventError` to `ScanStatus` and validated `eventCode` in `TicketViewModel`.
 
 ---
+
+#### Task 3.1: Batch QR Code Exporter Engine
 - **Status**: [x]
 - **Priority**: High
 - **Description**: 
