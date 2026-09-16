@@ -45,6 +45,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/DEPENDENCIES"
         }
     }
 }
@@ -88,6 +89,22 @@ dependencies {
 
     // QR Code Generation
     implementation("com.google.zxing:core:3.5.3")
+
+    // Google Sign-In (Credential Manager)
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
+    // Google API Client
+    implementation("com.google.api-client:google-api-client-android:1.35.0")
+    implementation("com.google.apis:google-api-services-sheets:v4-rev20230815-2.0.0")
+    implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0")
+    implementation("com.google.apis:google-api-services-gmail:v1-rev20230822-2.0.0")
+    implementation("com.google.http-client:google-http-client-gson:1.43.3")
+
+    // JavaMail (for constructing MIME messages locally)
+    implementation("com.sun.mail:android-mail:1.6.7")
+    implementation("com.sun.mail:android-activation:1.6.7")
 
     // Tests
     testImplementation("junit:junit:4.13.2")

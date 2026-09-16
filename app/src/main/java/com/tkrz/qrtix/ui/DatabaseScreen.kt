@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.IosShare
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -77,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tkrz.qrtix.viewmodel.TicketViewModel
+import com.tkrz.qrtix.ui.components.EventBadge
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -139,13 +141,15 @@ fun DatabaseScreen(
             TopAppBar(
                 title = { 
                     val activeEvent by viewModel.activeEvent.collectAsState()
-                    Column {
-                        if (inSelectionMode) {
-                            Text("${selectedTickets.size} Terpilih")
-                        } else {
-                            Text("List Lengkap Database") 
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            if (inSelectionMode) {
+                                Text("${selectedTickets.size} Terpilih")
+                            } else {
+                                Text("List Lengkap Database") 
+                            }
                         }
-                        Text(activeEvent?.name ?: "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                        EventBadge(event = activeEvent)
                     }
                 },
                 navigationIcon = {
@@ -190,6 +194,9 @@ fun DatabaseScreen(
                             Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
                         }
                     } else {
+                        IconButton(onClick = { viewModel.syncTicketsFromCloud() }) {
+                            Icon(Icons.Default.Sync, contentDescription = "Sinkronisasi Cloud")
+                        }
                         IconButton(onClick = { showHistoryDialog = true }) {
                             Icon(Icons.Default.History, contentDescription = "Riwayat Aktivitas")
                         }
@@ -578,10 +585,11 @@ fun DatabaseScreen(
     }
 
     if (showClearDialog) {
+        val activeEvent by viewModel.activeEvent.collectAsState()
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("Konfirmasi Reset") },
-            text = { Text("Apakah Anda yakin ingin menghapus semua tiket dan progres scan yang ada? Data tidak dapat dikembalikan.") },
+            text = { Text("Anda akan menghapus semua tiket pada event **${activeEvent?.name}**. Apakah Anda yakin? Data tidak dapat dikembalikan.") },
             confirmButton = {
                 Button(
                     onClick = {

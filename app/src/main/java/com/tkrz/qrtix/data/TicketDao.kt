@@ -25,8 +25,14 @@ interface TicketDao {
     @Query("SELECT * FROM tickets WHERE eventId = :eventId ORDER BY id ASC")
     suspend fun getAllTickets(eventId: Long): List<Ticket>
 
-    @Query("SELECT * FROM tickets WHERE qrContent = :qrContent AND eventId = :eventId LIMIT 1")
+    @Query("SELECT * FROM tickets WHERE id = :id LIMIT 1")
+    suspend fun getTicketById(id: Int): Ticket?
+
+    @Query("SELECT * FROM tickets WHERE qrContent = :qrContent COLLATE NOCASE AND eventId = :eventId LIMIT 1")
     suspend fun getTicketByQr(qrContent: String, eventId: Long): Ticket?
+
+    @Query("SELECT DISTINCT ticketType FROM tickets WHERE eventId = :eventId ORDER BY ticketType ASC")
+    fun getCategories(eventId: Long): kotlinx.coroutines.flow.Flow<List<String>>
 
     @Query("SELECT COUNT(*) FROM tickets WHERE eventId = :eventId")
     suspend fun getTicketCount(eventId: Long): Int
@@ -34,7 +40,7 @@ interface TicketDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTickets(tickets: List<Ticket>)
 
-    @Query("UPDATE tickets SET isScanned = 1, scannedAt = :scannedAt WHERE qrContent = :qrContent AND eventId = :eventId")
+    @Query("UPDATE tickets SET isScanned = 1, scannedAt = :scannedAt WHERE qrContent = :qrContent COLLATE NOCASE AND eventId = :eventId")
     suspend fun markAsScanned(qrContent: String, eventId: Long, scannedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM tickets WHERE eventId = :eventId")

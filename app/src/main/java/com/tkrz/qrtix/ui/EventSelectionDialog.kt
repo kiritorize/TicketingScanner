@@ -11,6 +11,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -25,7 +27,7 @@ fun EventSelectionDialog(
     activeEventId: Long,
     onEventSelected: (Long) -> Unit,
     onCreateEvent: (String) -> Unit,
-    onEditEvent: (Long, String) -> Unit,
+    onEditEvent: (Long, String, String?, String?) -> Unit,
     onDeleteEvent: (Long) -> Unit,
     onDismissRequest: () -> Unit
 ) {
@@ -100,6 +102,7 @@ fun EventSelectionDialog(
                     onValueChange = { newEventName = it },
                     label = { Text("Nama Event") },
                     singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters),
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -130,22 +133,68 @@ fun EventSelectionDialog(
         )
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var tempLogoPath by remember { mutableStateOf<String?>(null) }
+    var tempBgPath by remember { mutableStateOf<String?>(null) }
+
+    val logoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            val file = java.io.File(context.filesDir, "logo_${System.currentTimeMillis()}.jpg")
+            context.contentResolver.openInputStream(it)?.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+            tempLogoPath = file.absolutePath
+        }
+    }
+
+    val bgPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            val file = java.io.File(context.filesDir, "bg_${System.currentTimeMillis()}.jpg")
+            context.contentResolver.openInputStream(it)?.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+            tempBgPath = file.absolutePath
+        }
+    }
+
     if (eventToEdit != null) {
         var editEventName by remember { mutableStateOf(eventToEdit!!.name) }
+        
+        LaunchedEffect(eventToEdit) {
+            tempLogoPath = eventToEdit?.logoPath
+            tempBgPath = eventToEdit?.bgPath
+        }
+
         AlertDialog(
             onDismissRequest = { eventToEdit = null },
-            title = { Text("Edit Nama Event") },
+            title = { Text("Edit Workspace") },
             text = {
-                OutlinedTextField(
-                    value = editEventName,
-                    onValueChange = { editEventName = it },
-                    label = { Text("Nama Event") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column {
+                    OutlinedTextField(
+                        value = editEventName,
+                        onValueChange = { editEventName = it },
+                        label = { Text("Nama Event") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(
+                        onClick = { logoPickerLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (tempLogoPath != null) "Logo Terpilih" else "Pilih Logo")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { bgPickerLauncher.launch("image/*") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (tempBgPath != null) "Background Terpilih" else "Pilih Background")
+                    }
+                }
             },
             confirmButton = {
-                val context = androidx.compose.ui.platform.LocalContext.current
                 TextButton(
                     onClick = {
                         val trimmedName = editEventName.trim()
@@ -153,7 +202,7 @@ fun EventSelectionDialog(
                             if (events.any { it.name.equals(trimmedName, ignoreCase = true) && it.id != eventToEdit!!.id }) {
                                 android.widget.Toast.makeText(context, "Nama workspace sudah digunakan!", android.widget.Toast.LENGTH_SHORT).show()
                             } else {
-                                onEditEvent(eventToEdit!!.id, trimmedName)
+                                onEditEvent(eventToEdit!!.id, trimmedName, tempLogoPath, tempBgPath)
                                 eventToEdit = null
                             }
                         }

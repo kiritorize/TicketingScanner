@@ -96,21 +96,34 @@ Root package: `app/src/main/java/com/tkrz/qrtix/`
 
 | File | Contents | Responsibility |
 |------|----------|----------------|
-| `AppModule.kt` | Object `AppModule` | Hilt Module (@InstallIn SingletonComponent). Provides: AppDatabase, TicketDao, EventDao, HistoryLogDao, EventPreferences. All @Singleton. |
+| `AppModule.kt` | Object `AppModule` | Hilt Module (@InstallIn SingletonComponent). Provides: AppDatabase, TicketDao, EventDao, HistoryLogDao, EventPreferences, TicketRepository, EventRepository, HistoryLogRepository. All @Singleton. |
 
-### 4.4 ViewModel Layer (`viewmodel/`)
+### 4.4 Repository Layer (`data/repository/`)
 
 | File | Contents | Responsibility |
 |------|----------|----------------|
+| `TicketRepository.kt` | Class `TicketRepository`, Sealed class `OnlineScanResult` | Acts as a single source of truth for Ticket data operations. Wraps `TicketDao` and `GoogleSheetsService`. Provides `validateAndScanOnline()` for real-time cloud ticket validation. `OnlineScanResult` variants: Success, AlreadyScanned, NotFound, NetworkError. |
+| `EventRepository.kt` | Class `EventRepository` | Acts as a single source of truth for Event data operations. Wraps `EventDao`. |
+| `HistoryLogRepository.kt` | Class `HistoryLogRepository` | Acts as a single source of truth for HistoryLog data operations. Wraps `HistoryLogDao`. |
+| `DistributionRepository.kt` | Class `DistributionRepository` | Handles complex distribution validation (data, quantity, matching rules) and deterministic ticket assignment. Manages saving mapping to Google Sheets. |
+
+### 4.5 ViewModel Layer (`viewmodel/`)
+
+| File | Contents | Responsibility |
+|------|----------|----------------|
+| `AuthViewModel.kt` | Sealed class `AuthState`, Class `AuthViewModel` | Manages Google Sign-In state using Credential Manager. |
 | `TicketViewModel.kt` | Sealed class `ScanStatus`, Class `TicketViewModel` | All business logic for the app. Details below. |
+| `DistributionViewModel.kt` | Class `DistributionViewModel` | Exposes distribution validation results, loading state, and error handling for the distribution UI flow. |
 
 **ScanStatus** (sealed class — QR scan result states):
 - `ScanStatus.Success(ticket, scanTimeString)` — ticket valid, successfully scanned
 - `ScanStatus.AlreadyScanned(ticket, scanTimeString)` — ticket was already scanned before
 - `ScanStatus.Invalid(code)` — QR code not found in database
+- `ScanStatus.CrossEventError(code)` — ticket belongs to a different event
+- `ScanStatus.NetworkError(message)` — network/cloud error during online validation
 - `ScanStatus.Idle` — no scan result (initial/reset state)
 
-**TicketViewModel** — injected dependencies: TicketDao, EventDao, EventPreferences, HistoryLogDao, Context.
+**TicketViewModel** — injected dependencies: TicketRepository, EventRepository, EventPreferences, HistoryLogRepository, Context.
 
 Exposed state (StateFlow):
 - `activeEventId: StateFlow<Long>` — currently active event ID
@@ -122,6 +135,9 @@ Exposed state (StateFlow):
 - `ticketList: StateFlow<List<Ticket>>` — all tickets in active event
 - `historyLogs: StateFlow<List<HistoryLog>>` — activity history for active event
 - `filteredList: StateFlow<List<Ticket>>` — filtered & sorted result from ticketList
+- `isOnline: StateFlow<Boolean>` — whether the last cloud operation succeeded (true=Online, false=Offline)
+- `isScanLoading: StateFlow<Boolean>` — true while a cloud scan validation round-trip is in progress
+- `lastSyncTime: StateFlow<Long>` — timestamp of the last successful periodic sync
 
 Mutable filter/sort state (MutableStateFlow, can be set directly from UI):
 - `searchQuery: MutableStateFlow<String>` — search text
@@ -153,27 +169,48 @@ Private functions:
 - `serializeTickets(tickets): String` — serialize tickets to string (format: field1::field2||field1::field2)
 - `deserializeTickets(data): List<Ticket>` — deserialize string back to ticket list
 
-### 4.5 UI Layer (`ui/`)
+### 4.6 UI Layer (`ui/`)
 
 | File | Composable Signature | Responsibility |
 |------|---------------------|----------------|
-| `SplashScreen.kt` | `SplashScreen(onFinished)` | Splash/loading screen. Logo bounce animation, pulsing glow effect, progress bar 0→100%. Auto-calls onFinished() when done. Theme color: lavender (#A4A2E4). Does NOT use ViewModel. |
-| `MainMenuScreen.kt` | `MainMenuScreen(viewModel, onNavigateToScanner, onNavigateToManagement, onNavigateToDatabase, onNavigateToGenerator)` | Main menu hub. Header shows active workspace name (tap to open EventSelectionDialog). 4 navigation buttons: Mulai Scan, Setup Database, List Database, Alat Generator Tiket. Copyright footer. |
-| `ScannerScreen.kt` | `ScannerScreen(viewModel, playSuccess, playError, onNavigateToManagement, onNavigateBack)` | QR scanning screen. Full-screen CameraX preview. Scan frame (70% screen width) with animated green scan line moving up/down. Dark scrim outside scan area. Top bar: event name, scan counter ("Scan: X / Y"), flashlight toggle. Popup dialog for scan results (green=success, red=error/warning). Manual text input at bottom of screen. Requests camera permission on first open. |
-| `ManagementScreen.kt` | `ManagementScreen(viewModel, onNavigateToDatabase, onNavigateToGenerator, playSuccess, playError, onNavigateBack)` | Database setup screen. Info card showing total registered tickets. Link to Generator. CSV import button. Two NumberedInputBox inputs (Kode Unik + Kategori). "Tambahkan dari Input" button. Validates duplicates both internally and against DB. Error dialog for duplicate issues. |
-| `DatabaseScreen.kt` | `DatabaseScreen(viewModel, onNavigateBack)` | Full database list screen. Search bar. Status filter (Semua/Sudah Scan/Belum Scan) & category filter. Sorting (3 modes, asc/desc). LazyColumn of ticket Cards. Multi-select via long-press (select all, batch delete). Individual ticket edit (AlertDialog). CSV export (all data or scanned-only). "Hapus Semua / Reset Database" button with confirmation. HistoryLogDialog access. Snackbar undo after deletion. BackHandler intercepts back press during selection mode. |
-| `GeneratorScreen.kt` | `GeneratorScreen(onNavigateBack)` | Bulk ticket generator. CSV import. Two NumberedInputBox inputs. Validates row count match & duplicate codes. Generates ZIP (via TicketExporter) containing: data_impor_qrtix.csv + QR PNG images per ticket. Progress dialog during generation. Files saved to Documents/QRTix/. Does NOT use TicketViewModel (standalone screen). |
-| `EventSelectionDialog.kt` | `EventSelectionDialog(events, activeEventId, onEventSelected, onCreateEvent, onEditEvent, onDeleteEvent, onDismissRequest)` | Workspace selection dialog. Lists events (active on top, others sorted by lastAccessedAt). Each event can be: selected, renamed, deleted (except id=1 and active event). "Buat Event Baru" button. Validates duplicate names. |
+| `DashboardScreen.kt` | `DashboardScreen(viewModel, onNavigateToScanner, onNavigateToManagement, onNavigateToDatabase, onNavigateToGenerator, onNavigateToTicketEditor)` | Replaces MainMenuScreen. Event-centric dashboard that guides users contextually (Generate vs Scan vs Continue Scan) and displays current event metrics. |
+| `DatabaseScreen.kt` | `DatabaseScreen(viewModel, onNavigateBack)` | Displays list of tickets. Features: search by QR code/ID, filter by status (Scanned/Unscanned), sort options. Includes multi-select for batch delete, and manual sync button. |
+| `DistributionScreen.kt` | `DistributionScreen(viewModel, distViewModel, onNavigateBack)` | Multi-step wizard UI for extracting data from Google Forms, mapping columns, matching categories, validating assignments, and distributing tickets. |
+| `EventSelectionDialog.kt` | `EventSelectionDialog(events, activeEventId, onEventSelected, onCreateEvent, onEditEvent, onDeleteEvent, onDismissRequest)` | Workspace selection dialog. Lists events (active on top, others sorted by lastAccessedAt). Each event can be: selected, renamed, deleted (except id=1 and active event). "Buat Event Baru" button. Validates duplicate names. Also allows picking Logo and Background images from gallery. |
+| `GeneratorScreen.kt` | `GeneratorScreen(viewModel, onNavigateBack)` | Bulk generation tool. Two modes: Manual CSV (input/paste codes) and Mode Kuota (auto-generate sequences). Outputs a ZIP file containing the generated CSV and standard-sized QR image files. Supports direct DB insertion. |
 | `HistoryLogDialog.kt` | `HistoryLogDialog(viewModel, onDismissRequest)` | Activity history dialog. Log list color-coded by action (green=Scan, blue=Import/Tambah, orange=Edit, red=Hapus). Expandable details (tap to view involved tickets). Undo button for delete actions that haven't been undone. "Hapus Semua" button to clear history. |
+| `LoginScreen.kt` | `LoginScreen(viewModel, onLoginSuccess)` | Landing page showing app logo and tagline. Handles Google Sign-In button click to start authentication flow. |
+| `MainMenuScreen.kt` | `MainMenuScreen(viewModel, ...)` | **DEPRECATED**. Replaced by `DashboardScreen.kt`. Legacy main menu with 4 primary action buttons. |
+| `ManagementScreen.kt` | `ManagementScreen(viewModel, ...)` | Database setup screen. Provides options to import CSV/Excel and manual multi-line text input for Ticket ID and Categories. |
 | `NumberedInputBox.kt` | `NumberedInputBox(label, placeholder, value, onValueChange, onClear, modifier)` | Reusable component. Multi-line text input with line numbers, header label, custom scrollbar, line separators between rows, clear button. Fixed height 160.dp. Used in ManagementScreen and GeneratorScreen. |
+| `OnboardingOverlay.kt` | `OnboardingOverlay(onComplete)` | 4-step wizard/stepper explaining the app flow to first-time users (Buat Event, Generate, Distribusi, Scan). Displayed after first successful Google Sign-In. |
+| `ScannerScreen.kt` | `ScannerScreen(viewModel, playSuccess, playError, onNavigateBack)` | QR Scanner interface using CameraX and ML Kit. Features: animated scanning line, overlay guides, manual input fallback, flashlight toggle. Validates tickets and triggers audio/haptic feedback. |
+| `SplashScreen.kt` | `SplashScreen(onFinished)` | App entry point. Displays QRTix branding and runs initialization/animation before routing to Login or Onboarding/Dashboard. |
+| `TicketEditorScreen.kt` | `TicketEditorScreen(viewModel, onNavigateBack)` | Visual ticket editor. Displays event background image and dummy QR code. User can drag, scale, and rotate the dummy QR. Saves transformation values to event database. |
 
-### 4.6 Utility Layer (`utils/`)
+### 4.7 Component Layer (`ui/components/`)
+
+| File | Main Function/Component | Description |
+|------|-------------------------|-------------|
+| `EventBadge.kt` | `EventBadge(event)` | Persistent visual indicator for active event name using a dynamically generated color based on event ID. Ensures user awareness of the workspace context. |
+
+### 4.8 Utility Layer (`utils/`)
 
 | File | Class | Responsibility |
 |------|-------|----------------|
 | `QrCodeAnalyzer.kt` | `QrCodeAnalyzer(onQrCodeScanned)` | CameraX ImageAnalysis.Analyzer implementation. Takes camera frame → sends to ML Kit BarcodeScanning → if QR detected AND its bounding box intersects the center 60% area of the frame → calls onQrCodeScanned(value). isAnalyzing flag prevents parallel processing. |
 | `SoundManager.kt` | `SoundManager(context)` | Manages sound effects via SoundPool and vibration via Vibrator. Sound files: res/raw/sound_success and res/raw/sound_error. playSuccess() = sound + 50ms vibration. playError() = sound + vibration pattern [0,100,100,100]. Must call release() in Activity.onDestroy(). |
 | `TicketExporter.kt` | `TicketExporter(context)` | Function: exportTicketsToZip(tickets, fileName, onProgress). Creates ZIP file in Documents/QRTix/ via MediaStore API. ZIP contents: (1) data_impor_qrtix.csv, (2) QR PNG image per ticket named QRTix_{code}_{category}.png at 512x512px. Progress callback fires every 10 tickets. |
+
+### 4.8 Cloud Data Layer (`data/cloud/`)
+
+| File | Class | Responsibility |
+|------|-------|----------------|
+| `GoogleCredentialManager.kt` | `GoogleCredentialManager` | Configures and provides `GoogleAccountCredential` with necessary OAuth scopes for API requests. |
+| `GoogleSheetsService.kt` | `GoogleSheetsService` | Wraps the Google Sheets API v4. Provides methods to create spreadsheets, read ranges, append rows, and batch update. Includes exponential backoff for rate limits. |
+| `GoogleDriveService.kt` | `GoogleDriveService` | Wraps the Google Drive API v3. Provides methods to upload, download, and search files. |
+| `CloudPreferences.kt` | `CloudPreferences` | Stores cloud-related IDs (Google Drive folder ID, Spreadsheet ID) in SharedPreferences. |
+| `SpreadsheetManager.kt` | `SpreadsheetManager` | Handles the initialization of the Google Spreadsheet database (`QRTix_Data`) in Google Drive and creates the necessary schemas and headers. |
 
 ---
 
@@ -186,12 +223,14 @@ Start destination: `"splash"`
 ```
 Route           → Screen               → Can navigate to
 ─────────────────────────────────────────────────────────────
-"splash"        → SplashScreen          → "mainmenu" (auto, popUpTo splash inclusive)
-"mainmenu"      → MainMenuScreen        → "scanner", "management", "database", "generator"
+"splash"        → SplashScreen          → "mainmenu" or "login" (auto, popUpTo splash)
+"login"         → LoginScreen           → "mainmenu" (on successful auth)
+"mainmenu"      → MainMenuScreen        → "scanner", "management", "database", "generator", "ticket_editor"
 "scanner"       → ScannerScreen         → "management" (via button), back
 "management"    → ManagementScreen      → "database", "generator", back
 "database"      → DatabaseScreen        → back
 "generator"     → GeneratorScreen       → back
+"ticket_editor" → TicketEditorScreen    → back
 ```
 
 All screens receive an `onNavigateBack` callback that calls `navController.popBackStack()` with a safety check for null previousBackStackEntry.
@@ -201,7 +240,17 @@ All screens receive an `onNavigateBack` callback that calls `navController.popBa
 ## 6. DATABASE SCHEMA
 
 Database name: `ticketing_database`
-Current version: 10
+Current version: 13
+
+### Table: categories
+```
+id              INTEGER  PRIMARY KEY AUTOINCREMENT
+eventId         INTEGER  NOT NULL
+categoryName    TEXT     NOT NULL
+categoryCode    TEXT     NOT NULL
+
+UNIQUE INDEX: (categoryCode, eventId)
+```
 
 ### Table: tickets
 ```
@@ -223,6 +272,13 @@ id              INTEGER  PRIMARY KEY AUTOINCREMENT
 name            TEXT     NOT NULL
 createdAt       INTEGER  NOT NULL (timestamp millis)
 lastAccessedAt  INTEGER  NOT NULL (timestamp millis)
+logoPath        TEXT     NULLABLE
+eventCode       TEXT     NOT NULL DEFAULT 'EVNT1'
+bgPath          TEXT     NULLABLE
+qrX             REAL     NOT NULL DEFAULT 0.0
+qrY             REAL     NOT NULL DEFAULT 0.0
+qrScale         REAL     NOT NULL DEFAULT 1.0
+qrRotation      REAL     NOT NULL DEFAULT 0.0
 ```
 
 ### Table: history_logs
@@ -242,6 +298,7 @@ isUndone    INTEGER  NOT NULL DEFAULT 0 (boolean)
 - v7→v8: Added `lastAccessedAt` column to events
 - v8→v9: Created history_logs table
 - v9→v10: Added `details` and `isUndone` columns to history_logs
+- v10→v11: Added `logoPath`, `eventCode`, `bgPath`, `qrX`, `qrY`, `qrScale`, `qrRotation` to events
 
 **IMPORTANT**: If adding/modifying schema, you MUST create a new migration object and increment the version number in the @Database annotation in AppDatabase.kt.
 
@@ -254,10 +311,13 @@ isUndone    INTEGER  NOT NULL DEFAULT 0 (boolean)
 2. **Ticket uniqueness**: qrContent is unique PER EVENT. The same code can exist in different events.
 
 3. **QR scan process** (in processQrCode):
-   - Looks up ticket by qrContent + active eventId in DB
-   - Not found → ScanStatus.Invalid (returns 3)
+   - Local pre-check: validates QR prefix against active event's eventCode. If mismatch → ScanStatus.CrossEventError (returns 4)
+   - Cloud validation: calls `ticketRepository.validateAndScanOnline()` which reads and writes directly to Google Sheets in real-time (5-second timeout)
+   - Not found in Sheets → ScanStatus.Invalid (returns 3)
    - Found & isScanned=true → ScanStatus.AlreadyScanned (returns 2)
-   - Found & isScanned=false → marks as scanned, logs to history, ScanStatus.Success (returns 1)
+   - Found & isScanned=false → writes isScanned=TRUE + scannedAt to Sheets row.
+   - **Conflict Detection**: Immediately re-reads the row to confirm write success. If timestamp matches → updates local cache, logs to history → ScanStatus.Success (returns 1). If mismatch → ScanStatus.AlreadyScanned (returns 2).
+   - Network error or timeout → ScanStatus.NetworkError (returns 5)
 
 4. **Ticket import** (addTicketsFromText): Reads CSV, skips header row if detected, skips blank rows, detects internal duplicates, detects duplicates against existing DB data, inserts only new unique tickets, logs action to history.
 
@@ -301,6 +361,15 @@ File: `app/src/main/AndroidManifest.xml`
 
 ## 10. FEATURE CHECKLIST
 
+- [x] **Phase 1: Multi-Event Support & Room Schema Update** (Completed)
+- [x] **Phase 2: Ticket Editing, UI/UX, & Print Adjustments** (Completed)
+- [x] **Phase 3: Generator Tab, Bulk Delete, QR Logic, Background & Template** (Completed)
+- [x] **Phase 4: Scanner & Validation Optimization** (Completed)
+- [x] **Phase 5: Architecture Refactoring & Google Auth Foundation**
+- [x] **Phase 6: Cloud Data Integration**
+- [ ] **Phase 7: Real-Time Multi-Device Scanning**
+- [x] **Phase 8: UI/UX Flow Redesign**
+- [ ] **Phase 9: Ticket Distribution via Email**
 - [x] Splash screen with animations
 - [x] Multi-workspace (event) management — CRUD events, switch active event
 - [x] Import tickets from CSV files
@@ -318,7 +387,17 @@ File: `app/src/main/AndroidManifest.xml`
 - [x] Activity history (history log) per event
 - [x] Undo deletion (via Snackbar & via History Log)
 - [x] Bulk ticket generator (output: ZIP containing CSV + QR images)
+- [x] Quota Auto-Generate Mode for Bulk Ticket Generation
+- [x] Direct Database Insertion from Generator
 - [x] Delete all / reset database
+- [x] Event Media (Logo and Background)
+- [x] Visual Ticket Editor (QR manipulation)
+- [x] Real-time online ticket validation via Google Sheets (cloud-first scanning)
+- [x] Onboarding overlay wizard for first-time sign-in
+- [x] Event-centric dynamic Dashboard screen
+- [x] Event Context Lock & Cross-Event safety guards
+- [x] Google Form response sheet linking & column auto-detection
+- [x] Ticket category fuzzy matching & mapping UI
 
 ---
 
@@ -327,6 +406,23 @@ File: `app/src/main/AndroidManifest.xml`
 Format: `[YYYY-MM-DD] — Description of changes — (files changed/added/deleted)`
 
 ```
+[2026-09-16] — Phase 9.1: Distribution Sheet Linking & Mapping — (ui/DistributionScreen.kt [NEW], utils/ColumnAutoDetector.kt [NEW], utils/CategoryMatcher.kt [NEW], MainActivity.kt, ui/DashboardScreen.kt, viewmodel/TicketViewModel.kt)
+[2026-09-16] — Phase 8.2 & 8.3: Dashboard Redesign & Event Safety Guards — (ui/DashboardScreen.kt [NEW], ui/components/EventBadge.kt [NEW], ui/ManagementScreen.kt, ui/DatabaseScreen.kt, ui/GeneratorScreen.kt, MainActivity.kt)
+[2026-09-16] — Phase 8.1: Login & Onboarding Screen — (ui/LoginScreen.kt, ui/OnboardingOverlay.kt [NEW], MainActivity.kt, data/AuthPreferences.kt, viewmodel/AuthViewModel.kt)
+[2026-09-16] — Phase 7.2: Multi-Gate Conflict Prevention & Sync Indicator — (data/repository/TicketRepository.kt, viewmodel/TicketViewModel.kt, ui/ScannerScreen.kt)
+[2026-09-16] — Phase 7.1: Online Ticket Validation via Google Sheets — (data/repository/TicketRepository.kt, viewmodel/TicketViewModel.kt, ui/ScannerScreen.kt)
+[2026-09-16] — Phase 6.5: History Log Sync via Google Sheets — (data/repository/HistoryLogRepository.kt, data/HistoryLog.kt, viewmodel/AuthViewModel.kt)
+[2026-09-16] — Phase 6.4: Google Drive Media Storage — (data/cloud/MediaManager.kt [NEW], data/cloud/SpreadsheetManager.kt, data/cloud/CloudPreferences.kt, viewmodel/TicketViewModel.kt, ui/MainMenuScreen.kt, ui/ScannerScreen.kt, ui/GeneratorScreen.kt)
+[2026-09-16] — Phase 6.3: Ticket CRUD via Google Sheets — (data/repository/TicketRepository.kt, data/cloud/GoogleSheetsService.kt, di/AppModule.kt, viewmodel/TicketViewModel.kt, ui/DatabaseScreen.kt)
+[2026-09-16] — Phase 6.2: Event CRUD via Google Sheets — (data/repository/EventRepository.kt, data/cloud/GoogleSheetsService.kt, data/EventDao.kt, di/AppModule.kt, viewmodel/AuthViewModel.kt)
+[2026-09-16] — Phase 6.1: Spreadsheet Schema & Initialization — (data/cloud/SpreadsheetManager.kt [NEW], data/cloud/CloudPreferences.kt [NEW], data/cloud/GoogleDriveService.kt, data/cloud/GoogleSheetsService.kt, di/AppModule.kt, viewmodel/AuthViewModel.kt)
+[2026-09-16] — Phase 5.3: Google API Service Layer Setup — (build.gradle.kts, data/cloud/GoogleCredentialManager.kt [NEW], data/cloud/GoogleSheetsService.kt [NEW], data/cloud/GoogleDriveService.kt [NEW], di/AppModule.kt)
+[2026-09-16] — Phase 5.2: Google Sign-In Integration — (build.gradle.kts, strings.xml, data/AuthPreferences.kt [NEW], viewmodel/AuthViewModel.kt [NEW], ui/LoginScreen.kt [NEW], MainActivity.kt)
+[2026-09-16] — Phase 5.1: Repository Pattern Refactoring — (data/repository/TicketRepository.kt [NEW], data/repository/EventRepository.kt [NEW], data/repository/HistoryLogRepository.kt [NEW], viewmodel/TicketViewModel.kt, di/AppModule.kt)
+[2026-09-15] — Phase 4: Scanner Optimization, Auto-Resume, Haptics, Capitalization & Cross-Event Validation — (ui/ScannerScreen.kt, data/TicketDao.kt, viewmodel/TicketViewModel.kt, ui/GeneratorScreen.kt, ui/EventSelectionDialog.kt)
+[2026-09-15] — Phase 3: Generator UI Revamp, Direct DB Insert, memory optimization, KeepScreenOn — (ui/GeneratorScreen.kt, utils/TicketExporter.kt, viewmodel/TicketViewModel.kt)
+[2026-09-15] — Phase 2: Core QR Engine Upgrade & Visual Ticket Editor — (utils/TicketExporter.kt, ui/TicketEditorScreen.kt [NEW], ui/EventSelectionDialog.kt, ui/MainMenuScreen.kt, MainActivity.kt)
+[2026-09-15] — Phase 1: Event Database Migration to v11 and Ticket Formatters — (data/Event.kt, data/AppDatabase.kt, utils/TicketFormatters.kt [NEW])
 [2026-09-15] — Initial project documentation created — (PROJECT_DOCUMENTATION.md, TASKS.md)
 ```
 

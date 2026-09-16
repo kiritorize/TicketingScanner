@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,7 +47,8 @@ fun MainMenuScreen(
     onNavigateToScanner: () -> Unit,
     onNavigateToManagement: () -> Unit,
     onNavigateToDatabase: () -> Unit,
-    onNavigateToGenerator: () -> Unit
+    onNavigateToGenerator: () -> Unit,
+    onNavigateToTicketEditor: () -> Unit
 ) {
     val activeEvent by viewModel.activeEvent.collectAsState()
     val allEvents by viewModel.allEvents.collectAsState()
@@ -57,7 +60,10 @@ fun MainMenuScreen(
             activeEventId = activeEvent?.id ?: 1L,
             onEventSelected = { id -> viewModel.switchEvent(id) },
             onCreateEvent = { name -> viewModel.createAndSwitchEvent(name) },
-            onEditEvent = { id, newName -> viewModel.updateEventName(id, newName) },
+            onEditEvent = { id, newName, logoPath, bgPath -> 
+                viewModel.updateEventName(id, newName)
+                viewModel.updateEventMedia(id, logoPath, bgPath)
+            },
             onDeleteEvent = { id -> viewModel.deleteEvent(id) },
             onDismissRequest = { showEventDialog = false }
         )
@@ -74,6 +80,29 @@ fun MainMenuScreen(
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            var localLogoPath by remember { mutableStateOf<String?>(null) }
+                            LaunchedEffect(activeEvent?.logoPath) {
+                                if (activeEvent?.logoPath != null) {
+                                    localLogoPath = viewModel.resolveMedia(activeEvent!!.logoPath!!)
+                                } else {
+                                    localLogoPath = null
+                                }
+                            }
+                            if (localLogoPath != null) {
+                                val bitmap = remember(localLogoPath) {
+                                    val file = java.io.File(localLogoPath!!)
+                                    if (file.exists()) {
+                                        android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                                    } else null
+                                }
+                                if (bitmap != null) {
+                                    androidx.compose.foundation.Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "Logo Event",
+                                        modifier = Modifier.padding(end = 8.dp).height(24.dp)
+                                    )
+                                }
+                            }
                             Text(
                                 text = activeEvent?.name ?: "Memuat...",
                                 fontSize = 18.sp,
@@ -141,6 +170,17 @@ fun MainMenuScreen(
                         .height(56.dp)
                 ) {
                     Text("List Database", fontSize = 18.sp)
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                OutlinedButton(
+                    onClick = onNavigateToTicketEditor,
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(56.dp)
+                ) {
+                    Text("Desain Tiket", fontSize = 18.sp)
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))

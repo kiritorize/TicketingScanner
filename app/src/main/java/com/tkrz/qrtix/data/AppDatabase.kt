@@ -7,11 +7,12 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Ticket::class, Event::class, HistoryLog::class], version = 10, exportSchema = false)
+@Database(entities = [Ticket::class, Event::class, HistoryLog::class, TicketCategory::class], version = 13, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun ticketDao(): TicketDao
     abstract fun eventDao(): EventDao
     abstract fun historyLogDao(): HistoryLogDao
+    abstract fun categoryDao(): CategoryDao
 
     companion object {
         @Volatile
@@ -55,6 +56,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE events ADD COLUMN logoPath TEXT")
+                database.execSQL("ALTER TABLE events ADD COLUMN eventCode TEXT NOT NULL DEFAULT 'EVNT1'")
+                database.execSQL("ALTER TABLE events ADD COLUMN bgPath TEXT")
+                database.execSQL("ALTER TABLE events ADD COLUMN qrX REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE events ADD COLUMN qrY REAL NOT NULL DEFAULT 0.0")
+                database.execSQL("ALTER TABLE events ADD COLUMN qrScale REAL NOT NULL DEFAULT 1.0")
+                database.execSQL("ALTER TABLE events ADD COLUMN qrRotation REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE events ADD COLUMN distributionSheetId TEXT")
+            }
+        }
+
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `categories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `eventId` INTEGER NOT NULL, `categoryName` TEXT NOT NULL, `categoryCode` TEXT NOT NULL)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_categories_categoryCode_eventId` ON `categories` (`categoryCode`, `eventId`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -62,7 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ticketing_database"
                 )
-                .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

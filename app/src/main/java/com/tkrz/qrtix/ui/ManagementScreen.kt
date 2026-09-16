@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tkrz.qrtix.viewmodel.TicketViewModel
+import com.tkrz.qrtix.ui.components.EventBadge
 import kotlinx.coroutines.launch
 
 /**
@@ -88,6 +89,7 @@ fun ManagementScreen(
     var importResultMessage by remember { mutableStateOf<String?>(null) }
     val ticketCount by viewModel.ticketCount.collectAsState()
     val ticketList by viewModel.ticketList.collectAsState()
+    val ticketCategories by viewModel.ticketCategories.collectAsState()
 
     // For duplicate error popup
     var showDuplicateDialog by remember { mutableStateOf(false) }
@@ -117,9 +119,11 @@ fun ManagementScreen(
             TopAppBar(
                 title = { 
                     val activeEvent by viewModel.activeEvent.collectAsState()
-                    Column {
-                        Text("Setup Database Tiket")
-                        Text(activeEvent?.name ?: "", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Setup Database Tiket")
+                        }
+                        EventBadge(event = activeEvent)
                     }
                 },
                 navigationIcon = {
@@ -210,11 +214,33 @@ fun ManagementScreen(
 
                 Button(
                     onClick = {
-                        csvLauncher.launch("*/*")
+                        showCsvConfirmation = true
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Pilih File CSV / Excel")
+                }
+
+                if (showCsvConfirmation) {
+                    val activeEvent by viewModel.activeEvent.collectAsState()
+                    AlertDialog(
+                        onDismissRequest = { showCsvConfirmation = false },
+                        title = { Text("Konfirmasi Import CSV") },
+                        text = { Text("Anda akan mengimpor tiket dari file CSV ke event **${activeEvent?.name}**. Lanjutkan?") },
+                        confirmButton = {
+                            Button(onClick = {
+                                showCsvConfirmation = false
+                                csvLauncher.launch("*/*")
+                            }) {
+                                Text("Pilih File")
+                            }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(onClick = { showCsvConfirmation = false }) {
+                                Text("Batal")
+                            }
+                        }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -250,28 +276,64 @@ fun ManagementScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                var showImportConfirmation by remember { mutableStateOf(false) }
+                var showCsvConfirmation by remember { mutableStateOf(false) }
+                
                 Button(
                     onClick = {
-                        scope.launch {
-                            if (codeInput.isNotBlank() || catInput.isNotBlank()) {
-                                val result = viewModel.addTicketsFromTwoBoxes(codeInput, catInput)
-                                if (result.first) {
-                                    playSuccess()
-                                    codeInput = ""
-                                    catInput = ""
-                                    importResultMessage = "Berhasil ditambahkan ke Database!"
-                                } else {
-                                    playError()
-                                    duplicateErrorMessage = result.second
-                                    showDuplicateDialog = true
-                                }
-                            }
+                        if (codeInput.isNotBlank() || catInput.isNotBlank()) {
+                            showImportConfirmation = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = codeInput.isNotBlank() || catInput.isNotBlank()
                 ) {
                     Text("Tambahkan dari Input")
+                }
+
+                if (showImportConfirmation) {
+                    val activeEvent by viewModel.activeEvent.collectAsState()
+                    AlertDialog(
+                        onDismissRequest = { showImportConfirmation = false },
+                        title = { Text("Konfirmasi Import") },
+                        text = { Text("Anda akan menambahkan tiket manual ke event **${activeEvent?.name}**. Lanjutkan?") },
+                        confirmButton = {
+                            Button(onClick = {
+                                val cats = catInput.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+                                val validCategoryCodes = ticketCategories.map { it.categoryCode }
+                                val invalidCats = cats.filter { !validCategoryCodes.contains(it) }.distinct()
+                                
+                                if (invalidCats.isNotEmpty()) {
+                                    showImportConfirmation = false
+                                    duplicateErrorMessage = "Kategori berikut tidak terdaftar:\n\n" + invalidCats.joinToString(", ") + "\n\nHarap pastikan semua baris menggunakan ID Singkatan (Code) yang valid."
+                                    showDuplicateDialog = true
+                                    return@Button
+                                }
+                                
+                                showImportConfirmation = false
+                                scope.launch {
+                                    val result = viewModel.addTicketsFromTwoBoxes(codeInput, catInput)
+                                    if (result.first) {
+                                        playSuccess()
+                                        codeInput = ""
+                                        catInput = ""
+                                        importResultMessage = "Berhasil ditambahkan ke Database!"
+                                    } else {
+                                        playError()
+                                        duplicateErrorMessage = result.second
+                                        showDuplicateDialog = true
+                                    }
+                                }
+                            }) {
+                                Text("Lanjutkan")
+                            }
+                        },
+                        dismissButton = {
+                            androidx.compose.material3.TextButton(onClick = { showImportConfirmation = false }) {
+                                Text("Batal")
+                            }
+                        }
+                    )
                 }
 
                 if (importResultMessage != null) {

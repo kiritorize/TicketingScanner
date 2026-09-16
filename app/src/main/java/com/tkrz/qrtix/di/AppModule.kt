@@ -45,4 +45,128 @@ object AppModule {
     fun provideHistoryLogDao(database: AppDatabase): com.tkrz.qrtix.data.HistoryLogDao {
         return database.historyLogDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideCategoryDao(database: AppDatabase): com.tkrz.qrtix.data.CategoryDao {
+        return database.categoryDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCategoryRepository(
+        categoryDao: com.tkrz.qrtix.data.CategoryDao,
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+    ): com.tkrz.qrtix.data.repository.CategoryRepository {
+        return com.tkrz.qrtix.data.repository.CategoryRepository(categoryDao, sheetsService, cloudPreferences)
+    }
+
+    @Provides
+    @Singleton
+    fun provideTicketRepository(
+        ticketDao: TicketDao,
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+    ): com.tkrz.qrtix.data.repository.TicketRepository {
+        return com.tkrz.qrtix.data.repository.TicketRepository(ticketDao, sheetsService, cloudPreferences)
+    }
+
+    @Provides
+    @Singleton
+    fun provideEventRepository(
+        eventDao: EventDao,
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+    ): com.tkrz.qrtix.data.repository.EventRepository {
+        return com.tkrz.qrtix.data.repository.EventRepository(eventDao, sheetsService, cloudPreferences)
+    }
+
+    @Provides
+    @Singleton
+    fun provideHistoryLogRepository(
+        historyLogDao: com.tkrz.qrtix.data.HistoryLogDao,
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+    ): com.tkrz.qrtix.data.repository.HistoryLogRepository {
+        return com.tkrz.qrtix.data.repository.HistoryLogRepository(historyLogDao, sheetsService, cloudPreferences)
+    }
+
+    @Provides
+    @Singleton
+    fun provideAuthPreferences(@ApplicationContext context: Context): com.tkrz.qrtix.data.AuthPreferences {
+        return com.tkrz.qrtix.data.AuthPreferences(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideGoogleCredentialManager(
+        @ApplicationContext context: Context,
+        authPreferences: com.tkrz.qrtix.data.AuthPreferences
+    ): com.tkrz.qrtix.data.cloud.GoogleCredentialManager {
+        return com.tkrz.qrtix.data.cloud.GoogleCredentialManager(context, authPreferences)
+    }
+
+    @Provides
+    @Singleton
+    fun provideGoogleSheetsService(credentialManager: com.tkrz.qrtix.data.cloud.GoogleCredentialManager): com.tkrz.qrtix.data.cloud.GoogleSheetsService {
+        return com.tkrz.qrtix.data.cloud.GoogleSheetsService(credentialManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideGoogleDriveService(credentialManager: com.tkrz.qrtix.data.cloud.GoogleCredentialManager): com.tkrz.qrtix.data.cloud.GoogleDriveService {
+        return com.tkrz.qrtix.data.cloud.GoogleDriveService(credentialManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCloudPreferences(@ApplicationContext context: Context): com.tkrz.qrtix.data.cloud.CloudPreferences {
+        return com.tkrz.qrtix.data.cloud.CloudPreferences(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSpreadsheetManager(
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
+        driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService
+    ): com.tkrz.qrtix.data.cloud.SpreadsheetManager {
+        return com.tkrz.qrtix.data.cloud.SpreadsheetManager(cloudPreferences, driveService, sheetsService)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDistributionRepository(
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
+        ticketRepository: com.tkrz.qrtix.data.repository.TicketRepository
+    ): com.tkrz.qrtix.data.repository.DistributionRepository {
+        return com.tkrz.qrtix.data.repository.DistributionRepository(sheetsService, ticketRepository)
+    }
+
+    @Provides
+    @Singleton
+    fun provideGmailService(
+        credentialManager: com.tkrz.qrtix.data.cloud.GoogleCredentialManager
+    ): com.tkrz.qrtix.data.cloud.GmailService {
+        return com.tkrz.qrtix.data.cloud.GmailService(credentialManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDriveFolderManager(
+        driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService
+    ): com.tkrz.qrtix.data.cloud.DriveFolderManager {
+        return com.tkrz.qrtix.data.cloud.DriveFolderManager(driveService)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBackgroundUploadManager(
+        driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
+        driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+    ): com.tkrz.qrtix.data.cloud.BackgroundUploadManager {
+        return com.tkrz.qrtix.data.cloud.BackgroundUploadManager(driveService, driveFolderManager, cloudPreferences)
+    }
 }

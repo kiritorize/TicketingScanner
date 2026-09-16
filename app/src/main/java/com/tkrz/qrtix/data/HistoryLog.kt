@@ -30,4 +30,7 @@ interface HistoryLogDao {
 
     @Query("DELETE FROM history_logs WHERE eventId = :eventId")
     suspend fun deleteLogsForEvent(eventId: Long)
+
+    @Query("DELETE FROM history_logs")
+    suspend fun deleteAllLogs()
 }
