@@ -59,12 +59,11 @@ fun MainMenuScreen(
             events = allEvents,
             activeEventId = activeEvent?.id ?: 1L,
             onEventSelected = { id -> viewModel.switchEvent(id) },
-            onCreateEvent = { name -> viewModel.createAndSwitchEvent(name) },
-            onEditEvent = { id, newName, logoPath, bgPath -> 
-                viewModel.updateEventName(id, newName)
-                viewModel.updateEventMedia(id, logoPath, bgPath)
-            },
+            onCreateEvent = { name, code -> viewModel.createAndSwitchEvent(name, code) },
+            onEditEventClick = { },
             onDeleteEvent = { id -> viewModel.deleteEvent(id) },
+            onExportEventClick = { },
+            onImportEventUri = { },
             onDismissRequest = { showEventDialog = false }
         )
     }

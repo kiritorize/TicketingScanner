@@ -4,15 +4,24 @@ import com.tkrz.qrtix.data.Event
 import com.tkrz.qrtix.data.EventDao
 import com.tkrz.qrtix.data.cloud.CloudPreferences
 import com.tkrz.qrtix.data.cloud.GoogleSheetsService
+import com.tkrz.qrtix.data.EventPreferences
+import com.tkrz.qrtix.data.cloud.EventBackupManager
+import com.tkrz.qrtix.data.CategoryDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import javax.inject.Inject
+import android.util.Log
 
 class EventRepository @Inject constructor(
     private val eventDao: EventDao,
     private val sheetsService: GoogleSheetsService,
-    private val cloudPreferences: CloudPreferences
+    private val cloudPreferences: CloudPreferences,
+    private val eventPreferences: EventPreferences,
+    private val eventBackupManager: EventBackupManager,
+    private val categoryDao: CategoryDao
 ) {
     fun getAllEvents(): Flow<List<Event>> = eventDao.getAllEvents()
 
@@ -20,7 +29,7 @@ class EventRepository @Inject constructor(
 
     suspend fun syncEventsFromCloud() = withContext(Dispatchers.IO) {
         val spreadsheetId = cloudPreferences.spreadsheetId ?: throw Exception("Cloud database belum siap")
-        val data = sheetsService.readRange(spreadsheetId, "Events!A2:K")
+        val data = sheetsService.readRange(spreadsheetId, "Events!A2:L")
         
         val events = mutableListOf<Event>()
         if (data != null) {
@@ -38,8 +47,9 @@ class EventRepository @Inject constructor(
                     val qrY = row.getOrNull(8)?.toString()?.toFloatOrNull() ?: 0f
                     val qrScale = row.getOrNull(9)?.toString()?.toFloatOrNull() ?: 1f
                     val qrRotation = row.getOrNull(10)?.toString()?.toFloatOrNull() ?: 0f
+                    val distributionSheetId = row.getOrNull(11)?.toString()?.takeIf { it.isNotBlank() }
                     
-                    events.add(Event(id, name, createdAt, lastAccessedAt, logoPath, eventCode, bgPath, qrX, qrY, qrScale, qrRotation))
+                    events.add(Event(id, name, createdAt, lastAccessedAt, logoPath, eventCode, bgPath, qrX, qrY, qrScale, qrRotation, distributionSheetId))
                 } catch (e: Exception) {
                     // Skip malformed row
                 }
@@ -47,12 +57,30 @@ class EventRepository @Inject constructor(
         }
 
         if (events.isEmpty()) {
-            val defaultEvent = Event(id = 1, name = "Event Default")
-            insertEvent(defaultEvent)
+            Log.w("EventRepository", "Cloud returned 0 events, skipping destructive sync")
+            return@withContext
         } else {
-            eventDao.deleteAllEvents()
+            val localEvents = eventDao.getEventsList()
+            val cloudEventIds = events.map { it.id }.toSet()
+            
+            // Delete events in local but not in cloud
+            for (local in localEvents) {
+                if (local.id !in cloudEventIds && local.id != 1L) {
+                    eventDao.deleteEvent(local.id)
+                }
+            }
+            
+            // Insert / Update events from cloud
             for (event in events) {
                 eventDao.insertEvent(event)
+            }
+            
+            // Validate activeEventId
+            val activeId = eventPreferences.getActiveEventId()
+            val isActiveStillValid = events.any { it.id == activeId }
+            if (!isActiveStillValid) {
+                val fallbackId = events.firstOrNull()?.id ?: 1L
+                eventPreferences.setActiveEventId(fallbackId)
             }
         }
     }
@@ -82,11 +110,18 @@ class EventRepository @Inject constructor(
             newEvent.qrX.toString(),
             newEvent.qrY.toString(),
             newEvent.qrScale.toString(),
-            newEvent.qrRotation.toString()
+            newEvent.qrRotation.toString(),
+            newEvent.distributionSheetId ?: ""
         )
         
-        sheetsService.appendRow(spreadsheetId, "Events!A1", rowData)
+        sheetsService.appendRow(spreadsheetId, "Events!A:L", rowData)
         eventDao.insertEvent(newEvent)
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            val categories = categoryDao.getCategoriesForEvent(newEvent.id).map { it.categoryName }
+            eventBackupManager.backupEventToCloud(newEvent, categories)
+        }
+        
         newEvent.id
     }
 
@@ -116,12 +151,18 @@ class EventRepository @Inject constructor(
                 event.qrX.toString(),
                 event.qrY.toString(),
                 event.qrScale.toString(),
-                event.qrRotation.toString()
+                event.qrRotation.toString(),
+                event.distributionSheetId ?: ""
             )
-            sheetsService.updateRow(spreadsheetId, "Events!A$rowIndex:K$rowIndex", rowData)
+            sheetsService.updateRow(spreadsheetId, "Events!A$rowIndex:L$rowIndex", rowData)
         }
         
         eventDao.updateEvent(event)
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            val categories = categoryDao.getCategoriesForEvent(event.id).map { it.categoryName }
+            eventBackupManager.backupEventToCloud(event, categories)
+        }
     }
 
     suspend fun deleteEvent(id: Long) = withContext(Dispatchers.IO) {
@@ -144,5 +185,25 @@ class EventRepository @Inject constructor(
         }
         
         eventDao.deleteEvent(id)
+    }
+
+    suspend fun checkEventCodeExistsInCloud(eventCode: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val spreadsheetId = cloudPreferences.spreadsheetId ?: return@withContext false
+            val data = sheetsService.readRange(spreadsheetId, "Events!F2:F")
+            data?.any { it.firstOrNull()?.toString().equals(eventCode, ignoreCase = true) } == true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun checkEventNameExistsInCloud(eventName: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val spreadsheetId = cloudPreferences.spreadsheetId ?: return@withContext false
+            val data = sheetsService.readRange(spreadsheetId, "Events!B2:B")
+            data?.any { it.firstOrNull()?.toString().equals(eventName, ignoreCase = true) } == true
+        } catch (e: Exception) {
+            false
+        }
     }
 }

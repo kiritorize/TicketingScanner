@@ -279,6 +279,7 @@ qrX             REAL     NOT NULL DEFAULT 0.0
 qrY             REAL     NOT NULL DEFAULT 0.0
 qrScale         REAL     NOT NULL DEFAULT 1.0
 qrRotation      REAL     NOT NULL DEFAULT 0.0
+distributionSheetId TEXT NULLABLE
 ```
 
 ### Table: history_logs
@@ -406,6 +407,27 @@ File: `app/src/main/AndroidManifest.xml`
 Format: `[YYYY-MM-DD] — Description of changes — (files changed/added/deleted)`
 
 ```
+[2026-09-22] — Phase 12.1: Inter-Device Database Transfer: Built export and import workflow using a custom .qrtix package file containing JSON data and media assets. Added UI actions in EventSelectionDialog. — (data/transfer/DatabaseTransferManager.kt [NEW], ui/EventSelectionDialog.kt, ui/DashboardScreen.kt, viewmodel/TicketViewModel.kt)
+[2026-09-22] — Phase 11.7: Post-Refactor Cleanup & Polish: Moved Sync button to Dashboard, Fixed Distribution BackButton navigation, Implemented comprehensive History Logging (Generator/Distribution/Events/Categories), Background QR Generation with Foreground Service and Synthesized Professional Sounds for Scanner — (ui/DashboardScreen.kt, ui/ScannerScreen.kt, ui/DistributionScreen.kt, viewmodel/TicketViewModel.kt, viewmodel/DistributionViewModel.kt, data/cloud/BackgroundUploadManager.kt, ui/GeneratorScreen.kt, services/GenerationTaskHolder.kt [NEW], services/GenerationService.kt [NEW], AndroidManifest.xml, res/raw/sound_success.wav [NEW], res/raw/sound_error.wav [NEW])
+[2026-09-21] — Phase 11.5: UI/UX Overhaul: Added Dashboard Sidebar with Navigation, Logout feature, full Event Profile Screen, Empty State Dashboard, and global slide transitions — (ui/DashboardScreen.kt, MainActivity.kt, ui/EventProfileScreen.kt, ui/EventSelectionDialog.kt, viewmodel/TicketViewModel.kt, viewmodel/AuthViewModel.kt)
+[2026-09-21] — Phase 11.6 (Part 2): Added Event Name uniqueness validation against Cloud, created BackupDetailDialog for monitoring and retrying uploads, and implemented full Profile Sync (Media & Categories) on Splash Screen — (viewmodel/TicketViewModel.kt, data/repository/EventRepository.kt, data/cloud/BackgroundUploadManager.kt, ui/BackupDetailDialog.kt, ui/DashboardScreen.kt, viewmodel/SplashViewModel.kt)
+[2026-09-21] — Phase 11.6.1: Restructured Google Drive Layout into System/Profiles architecture, implemented backward compatibility migration, and added QRTix.data JSON backups per event — (data/cloud/*, viewmodel/TicketViewModel.kt, data/repository/EventRepository.kt)
+[2026-09-21] — Phase 11.4: Refactored TicketEditorScreen for proportional WYSIWYG rendering, added numeric editing tools and preview dialog, and implemented native 2D Canvas DefaultTemplateRenderer for tickets without background — (ui/TicketEditorScreen.kt, utils/TicketExporter.kt, utils/DefaultTemplateRenderer.kt)
+[2026-09-21] — Phase 11.3.6: Added Category Code Validation limits and cloud checking — (ui/CategoryManagementDialog.kt, viewmodel/TicketViewModel.kt, data/repository/CategoryRepository.kt)
+[2026-09-21] — Phase 11.3.5: Added Event Code input when creating events, enforced uniqueness across local and cloud DB — (ui/EventSelectionDialog.kt, viewmodel/TicketViewModel.kt, data/repository/EventRepository.kt)
+[2026-09-21] — Phase 11.3.4: Added Inline Category creation in Generator Screen — (ui/GeneratorScreen.kt)
+[2026-09-21] — Phase 11.3.3: Fixed Prefix in Mode Kuota to use Event Code Automatically — (ui/GeneratorScreen.kt)
+[2026-09-21] — Phase 11.3.2: Auto-Insert Tickets to Database from Quota Mode and removed directInsert checkbox — (ui/GeneratorScreen.kt, viewmodel/TicketViewModel.kt)
+[2026-09-21] — Phase 11.3.1: Removed Manual Input & File Import Setup Database screen — (ui/ManagementScreen.kt, ui/DashboardScreen.kt, MainActivity.kt, viewmodel/TicketViewModel.kt)
+[2026-09-21] — Phase 11.2.3: Reworked Splash Screen to show real sync progress via SplashViewModel and stripped sync logic from AuthViewModel — (ui/SplashScreen.kt, viewmodel/SplashViewModel.kt, viewmodel/AuthViewModel.kt, MainActivity.kt)
+[2026-09-21] — Phase 11.2.2: Blocked App Operations When Offline by adding full-screen OfflineOverlay to MainActivity — (ui/OfflineOverlay.kt, MainActivity.kt)
+[2026-09-21] — Phase 11.2.1: Implemented Real-Time Network Monitoring using ConnectivityManager.NetworkCallback — (utils/NetworkMonitor.kt, di/AppModule.kt, viewmodel/TicketViewModel.kt)
+[2026-09-21] — Phase 11.1.6: Fixed Distribution "Gagal Menyimpan..." by adding error handling, detailed messaging and retry button — (data/repository/DistributionRepository.kt, viewmodel/DistributionViewModel.kt, ui/DistributionScreen.kt)
+[2026-09-21] — Phase 11.1.5: Fixed Undo Delete Not Restoring Data in Cloud by adding error handling and data validation — (viewmodel/TicketViewModel.kt)
+[2026-09-21] — Phase 11.1.4: Fixed "Masukkan ke Database" Button Not Working in Quota Mode by refreshing state on insert — (viewmodel/TicketViewModel.kt, ui/GeneratorScreen.kt)
+[2026-09-21] — Phase 11.1.3: Fixed QR Image Upload (Only 2 Tickets Uploaded to Drive) by taking queue snapshot, targeted invalidation, and adding retry mechanism — (data/cloud/BackgroundUploadManager.kt, data/cloud/DriveFolderManager.kt)
+[2026-09-21] — Phase 11.1.2: Fixed First 3 Tickets Not Entering Database in Quota Mode by fixing append range and adding Mutex + atomic generation — (data/repository/TicketRepository.kt, data/repository/HistoryLogRepository.kt)
+[2026-09-21] — Phase 11.1.1: Fixed Profile/Event Disappearing on App Restart (Sync Safety) via Safe Upsert and added distributionSheetId to Google Sheets sync — (data/repository/EventRepository.kt, data/cloud/SpreadsheetManager.kt, data/EventDao.kt, di/AppModule.kt)
 [2026-09-17] — Bug Fix: Handled Google OAuth UserRecoverableAuthIOException for remote consent — (viewmodel/AuthViewModel.kt, ui/LoginScreen.kt)
 [2026-09-16] — Phase 9.1: Distribution Sheet Linking & Mapping — (ui/DistributionScreen.kt [NEW], utils/ColumnAutoDetector.kt [NEW], utils/CategoryMatcher.kt [NEW], MainActivity.kt, ui/DashboardScreen.kt, viewmodel/TicketViewModel.kt)
 [2026-09-16] — Phase 8.2 & 8.3: Dashboard Redesign & Event Safety Guards — (ui/DashboardScreen.kt [NEW], ui/components/EventBadge.kt [NEW], ui/ManagementScreen.kt, ui/DatabaseScreen.kt, ui/GeneratorScreen.kt, MainActivity.kt)

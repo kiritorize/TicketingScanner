@@ -111,8 +111,10 @@ fun CategoryManagementDialog(
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newCatCode,
-                        onValueChange = { newCatCode = it.uppercase() },
-                        label = { Text("ID Singkatan (Cth: VPF)") },
+                        onValueChange = { newCatCode = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(6) },
+                        label = { Text("ID Singkatan (Cth: VIP, RGLR, VVIP)") },
+                        supportingText = { Text("2-6 karakter alfanumerik. Tidak dapat diubah setelah disimpan.") },
+                        isError = newCatCode.isNotEmpty() && (newCatCode.length < 2 || newCatCode.length > 6),
                         singleLine = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters
@@ -128,12 +130,15 @@ fun CategoryManagementDialog(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    if (newCatName.isNotBlank() && newCatCode.isNotBlank()) {
-                        onAddCategory(newCatName, newCatCode)
-                        showCreateDialog = false
-                    }
-                }) {
+                TextButton(
+                    onClick = {
+                        if (newCatName.isNotBlank() && newCatCode.length in 2..6) {
+                            onAddCategory(newCatName, newCatCode)
+                            showCreateDialog = false
+                        }
+                    },
+                    enabled = newCatName.isNotBlank() && newCatCode.length in 2..6
+                ) {
                     Text("Simpan")
                 }
             },

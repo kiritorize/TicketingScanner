@@ -43,10 +43,13 @@ class TicketViewModel @Inject constructor(
     private val eventPreferences: EventPreferences,
     private val historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository,
     private val mediaManager: com.tkrz.qrtix.data.cloud.MediaManager,
+    private val eventBackupManager: com.tkrz.qrtix.data.cloud.EventBackupManager,
     private val sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
     private val driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
     val backgroundUploadManager: com.tkrz.qrtix.data.cloud.BackgroundUploadManager,
     private val cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
+    private val databaseTransferManager: com.tkrz.qrtix.data.transfer.DatabaseTransferManager,
+    private val networkMonitor: com.tkrz.qrtix.utils.NetworkMonitor,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -74,8 +77,7 @@ class TicketViewModel @Inject constructor(
     private val _scanResultStatus = MutableStateFlow<ScanStatus>(ScanStatus.Idle)
     val scanResultStatus: StateFlow<ScanStatus> = _scanResultStatus
 
-    private val _isOnline = MutableStateFlow(true)
-    val isOnline: StateFlow<Boolean> = _isOnline
+    val isOnline: StateFlow<Boolean> = networkMonitor.isConnected
 
     private val _isScanLoading = MutableStateFlow(false)
     val isScanLoading: StateFlow<Boolean> = _isScanLoading
@@ -164,17 +166,12 @@ class TicketViewModel @Inject constructor(
                     if (ev == null) {
                         // Attempt to recover using the default event (ID 1)
                         val defaultEvent = eventRepository.getEventById(1L)
-                        if (defaultEvent == null) {
-                            // If even the default event is missing, create it
-                            val newDefault = Event(id = 1L, name = "Event Default")
-                            eventRepository.insertEvent(newDefault)
-                            ev = newDefault
-                        } else {
+                        if (defaultEvent != null) {
                             ev = defaultEvent
                         }
                         
                         // Sync preferences back to a valid event ID
-                        if (id != ev.id) {
+                        if (ev != null && id != ev.id) {
                             launch(Dispatchers.Main) {
                                 eventPreferences.setActiveEventId(ev.id)
                             }
@@ -222,7 +219,12 @@ class TicketViewModel @Inject constructor(
                 val existingCategories = categoryRepository.getCategoriesForEvent(currentEventId)
 
                 if (existingCategories.any { it.categoryCode == trimmedCode }) {
-                    showErrorToast("ID Kategori (Code) sudah digunakan!")
+                    launch(Dispatchers.Main) { showErrorToast("ID Kategori (Code) sudah digunakan!") }
+                    return@launch
+                }
+                
+                if (categoryRepository.checkCategoryCodeExistsInCloud(currentEventId, trimmedCode)) {
+                    launch(Dispatchers.Main) { showErrorToast("ID Kategori (Code) sudah digunakan (Cloud)!") }
                     return@launch
                 }
 
@@ -233,6 +235,18 @@ class TicketViewModel @Inject constructor(
                         categoryCode = trimmedCode
                     )
                 )
+                
+                historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                    eventId = currentEventId,
+                    action = "Tambah Kategori",
+                    description = "Tambah kategori $trimmedName (ID: $trimmedCode)"
+                ))
+                
+                val ev = eventRepository.getEventById(currentEventId)
+                if (ev != null) {
+                    val cats = categoryRepository.getCategoriesForEvent(currentEventId).map { it.categoryName }
+                    eventBackupManager.backupEventToCloud(ev, cats)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 showErrorToast("Gagal menambah kategori: ${e.message}")
@@ -248,7 +262,20 @@ class TicketViewModel @Inject constructor(
                 val categoryToUpdate = existingCategories.find { it.id == categoryId }
                 
                 if (categoryToUpdate != null) {
-                    categoryRepository.updateCategory(categoryToUpdate.copy(categoryName = newName.trim()))
+                    val updatedCategory = categoryToUpdate.copy(categoryName = newName.trim())
+                    categoryRepository.updateCategory(updatedCategory)
+                    
+                    historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                        eventId = currentEventId,
+                        action = "Ubah Kategori",
+                        description = "Ubah nama kategori ID ${categoryToUpdate.categoryCode} menjadi ${newName.trim()}"
+                    ))
+                    
+                    val ev = eventRepository.getEventById(currentEventId)
+                    if (ev != null) {
+                        val cats = categoryRepository.getCategoriesForEvent(currentEventId).map { it.categoryName }
+                        eventBackupManager.backupEventToCloud(ev, cats)
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -266,6 +293,18 @@ class TicketViewModel @Inject constructor(
                 
                 if (categoryToDelete != null) {
                     categoryRepository.deleteCategory(categoryToDelete)
+                    
+                    historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                        eventId = currentEventId,
+                        action = "Hapus Kategori",
+                        description = "Hapus kategori ${categoryToDelete.categoryName} (ID: ${categoryToDelete.categoryCode})"
+                    ))
+                    
+                    val ev = eventRepository.getEventById(currentEventId)
+                    if (ev != null) {
+                        val cats = categoryRepository.getCategoriesForEvent(currentEventId).map { it.categoryName }
+                        eventBackupManager.backupEventToCloud(ev, cats)
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -274,17 +313,41 @@ class TicketViewModel @Inject constructor(
         }
     }
 
-    fun createAndSwitchEvent(name: String) {
+    fun createAndSwitchEvent(name: String, eventCode: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val trimmedName = name.trim()
-                if (trimmedName.isEmpty()) return@launch
+                val trimmedCode = eventCode.trim()
+                if (trimmedName.isEmpty() || trimmedCode.isEmpty()) return@launch
                 
                 if (allEvents.value.any { it.name.equals(trimmedName, ignoreCase = true) }) {
                     showErrorToast("Nama workspace sudah ada!")
                     return@launch
                 }
-                val newId = eventRepository.insertEvent(Event(name = trimmedName))
+                if (allEvents.value.any { it.eventCode.equals(trimmedCode, ignoreCase = true) }) {
+                    launch(Dispatchers.Main) { showErrorToast("Kode event sudah ada!") }
+                    return@launch
+                }
+                
+                if (eventRepository.checkEventCodeExistsInCloud(trimmedCode)) {
+                    launch(Dispatchers.Main) { showErrorToast("Kode event sudah digunakan oleh event lain (Cloud)!") }
+                    return@launch
+                }
+                
+                if (eventRepository.checkEventNameExistsInCloud(trimmedName)) {
+                    launch(Dispatchers.Main) { showErrorToast("Nama event sudah digunakan di perangkat lain (Cloud)!") }
+                    return@launch
+                }
+                
+                val profilesFolderId = cloudPreferences.profilesFolderId
+                if (profilesFolderId != null) {
+                    if (driveFolderManager.checkFolderExists(trimmedName, profilesFolderId)) {
+                        launch(Dispatchers.Main) { showErrorToast("Folder event sudah ada di Google Drive (Cloud)!") }
+                        return@launch
+                    }
+                }
+
+                val newId = eventRepository.insertEvent(Event(name = trimmedName, eventCode = trimmedCode))
                 launch(Dispatchers.Main) {
                     eventPreferences.setActiveEventId(newId)
                 }
@@ -316,25 +379,46 @@ class TicketViewModel @Inject constructor(
 
     fun updateEventName(id: Long, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (allEvents.value.any { it.name.equals(newName, ignoreCase = true) && it.id != id }) {
+            val trimmedName = newName.trim()
+            if (allEvents.value.any { it.name.equals(trimmedName, ignoreCase = true) && it.id != id }) {
                 showErrorToast("Nama workspace sudah ada!")
                 return@launch
             }
+            
+            if (eventRepository.checkEventNameExistsInCloud(trimmedName)) {
+                launch(Dispatchers.Main) { showErrorToast("Nama event sudah digunakan di perangkat lain (Cloud)!") }
+                return@launch
+            }
+            
+            val profilesFolderId = cloudPreferences.profilesFolderId
+            if (profilesFolderId != null) {
+                if (driveFolderManager.checkFolderExists(trimmedName, profilesFolderId)) {
+                    launch(Dispatchers.Main) { showErrorToast("Folder event sudah ada di Google Drive (Cloud)!") }
+                    return@launch
+                }
+            }
+            
             val event = eventRepository.getEventById(id)
             if (event != null) {
                 val oldName = event.name
-                val updatedEvent = event.copy(name = newName)
+                val updatedEvent = event.copy(name = trimmedName)
                 eventRepository.updateEvent(updatedEvent)
+                
+                historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                    eventId = id,
+                    action = "Ubah Event",
+                    description = "Ubah nama event dari $oldName menjadi $trimmedName"
+                ))
+                
                 if (id == activeEventId.value) {
                     _activeEvent.value = updatedEvent
                 }
                 
                 // Rename in Google Drive
-                val rootId = cloudPreferences.folderId
-                if (rootId != null) {
-                    val folderId = driveFolderManager.getOrCreateFolder(oldName, rootId)
+                if (profilesFolderId != null) {
+                    val folderId = driveFolderManager.getOrCreateFolder(oldName, profilesFolderId)
                     if (folderId != null) {
-                        driveFolderManager.renameFolder(folderId, newName)
+                        driveFolderManager.renameFolder(folderId, trimmedName)
                     }
                 }
             }
@@ -350,14 +434,14 @@ class TicketViewModel @Inject constructor(
                 
                 // If the provided path is a local path (starts with /), upload it
                 if (logoPath != null && logoPath.startsWith("/")) {
-                    val uploadedId = mediaManager.uploadMedia(java.io.File(logoPath))
+                    val uploadedId = mediaManager.uploadMedia(java.io.File(logoPath), event.name, true)
                     if (uploadedId != null) finalLogoId = uploadedId
                 } else if (logoPath == null) {
                     finalLogoId = null
                 }
 
                 if (bgPath != null && bgPath.startsWith("/")) {
-                    val uploadedId = mediaManager.uploadMedia(java.io.File(bgPath))
+                    val uploadedId = mediaManager.uploadMedia(java.io.File(bgPath), event.name, false)
                     if (uploadedId != null) finalBgId = uploadedId
                 } else if (bgPath == null) {
                     finalBgId = null
@@ -395,12 +479,20 @@ class TicketViewModel @Inject constructor(
         }
     }
 
+    private fun showSuccessToast(message: String) {
+        viewModelScope.launch(Dispatchers.Main) {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun deleteEvent(id: Long) {
+        if (id == activeEventId.value) {
+            showErrorToast("Tidak bisa menghapus event yang sedang aktif. Pindah ke event lain terlebih dahulu.")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            if (id != 1L && id != activeEventId.value) {    
-                eventRepository.deleteEvent(id)
-                ticketRepository.deleteAllTickets(id)
-            }
+            eventRepository.deleteEvent(id)
+            ticketRepository.deleteAllTickets(id)
         }
     }
 
@@ -415,102 +507,29 @@ class TicketViewModel @Inject constructor(
         }
     }
 
-    suspend fun insertBatchTickets(tickets: List<Ticket>): Int = withContext(Dispatchers.IO) {
+    suspend fun insertBatchTickets(
+        tickets: List<Ticket>, 
+        isGenerated: Boolean = false, 
+        categoryForLog: String = "", 
+        eventNameForLog: String = ""
+    ): Int = withContext(Dispatchers.IO) {
         val evtId = activeEventId.value
         val existingTickets = ticketRepository.getAllTickets(evtId)
         val existingCodes = existingTickets.map { it.qrContent }.toSet()
         val newTickets = tickets.filter { it.qrContent !in existingCodes }
         if (newTickets.isNotEmpty()) {
             ticketRepository.insertTickets(newTickets)
+            if (isGenerated) {
+                historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                    eventId = evtId,
+                    action = "Generate",
+                    description = "Generate ${newTickets.size} tiket $categoryForLog untuk event $eventNameForLog",
+                    details = newTickets.joinToString("||") { "${it.qrContent}::${it.ticketType}" }
+                ))
+            }
+            refreshTicketCount()
         }
         newTickets.size
-    }
-
-    suspend fun addTicketsFromText(text: String): String {
-        return withContext(Dispatchers.Default) {
-            try {
-                val rows = csvReader().readAll(text)
-                if (rows.isEmpty()) return@withContext "File CSV kosong atau tidak terbaca."
-
-                val evtId = activeEventId.value
-                val tickets = mutableListOf<Ticket>()
-                var isFirstLine = true
-                for (row in rows) {
-                    if (row.size < 2) {
-                        isFirstLine = false
-                        continue
-                    }
-                    val qr = row[0].trim()
-                    val type = row[1].trim()
-
-                    if (isFirstLine && (qr.equals("ID", ignoreCase = true) || qr.equals("Kode QR", ignoreCase = true) || row.joinToString().contains("Tipe Tiket"))) {
-                        isFirstLine = false
-                        continue
-                    }
-                    isFirstLine = false
-
-                    if (qr.isBlank() || type.isBlank()) continue
-
-                    tickets.add(Ticket(qrContent = qr, ticketType = type, isScanned = false, eventId = evtId))
-                }
-
-                if (tickets.isEmpty()) return@withContext "Tidak ada data tiket valid di dalam file."
-
-                val allCodes = tickets.map { it.qrContent }
-                val existingCodes = ticketRepository.getExistingCodes(allCodes, evtId).toSet()
-
-                val internalCodesToRows = mutableMapOf<String, MutableList<Int>>()
-                val uniqueInternalTickets = mutableListOf<Ticket>()
-
-                for (i in tickets.indices) {
-                    val code = tickets[i].qrContent
-                    internalCodesToRows.getOrPut(code) { mutableListOf() }.add(i)
-                    if (internalCodesToRows[code]!!.size == 1) {
-                        uniqueInternalTickets.add(tickets[i])
-                    }
-                }
-
-                val newTickets = uniqueInternalTickets.filter { it.qrContent !in existingCodes }
-                val duplicatesCount = tickets.size - newTickets.size
-
-                if (newTickets.isNotEmpty()) {
-                    ticketRepository.insertTickets(newTickets)
-                    val detailsStr = newTickets.joinToString("||") { "${it.qrContent}::${it.ticketType}" }
-                    historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
-                        eventId = evtId, 
-                        action = "Import", 
-                        description = if (newTickets.size == 1) "Penambahan pada kode: ${newTickets.first().qrContent}" else "Penambahan ${newTickets.size} tiket",
-                        details = if (newTickets.size > 1) detailsStr else ""
-                    ))
-                    refreshTicketCount()
-                }
-
-                if (duplicatesCount > 0) {
-                    "Berhasil import ${newTickets.size} data.\n$duplicatesCount data duplikat dilewati."
-                } else {
-                    "Berhasil ditambahkan ke Database!"
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                "Gagal memproses file:\n${e.message}"
-            }
-        }
-    }
-
-    fun importCsvFromUri(uri: Uri, onResult: (String) -> Unit) {
-        viewModelScope.launch {
-            try {
-                val text = withContext(Dispatchers.IO) {
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    inputStream?.bufferedReader()?.use { it.readText() } ?: ""
-                }
-                val resultMsg = addTicketsFromText(text)
-                onResult(resultMsg)
-            } catch (e: Exception) {
-                e.printStackTrace()
-                onResult("Gagal membaca file: ${e.message}")
-            }
-        }
     }
 
     fun clearAllTickets() {
@@ -576,77 +595,6 @@ class TicketViewModel @Inject constructor(
         }
     }
 
-    suspend fun addTicketsFromTwoBoxes(codesText: String, categoriesText: String): Pair<Boolean, String> {
-        val evtId = activeEventId.value
-        val codes = codesText.split("\n")
-        val cats = categoriesText.split("\n")
-
-        val codeLines = codes.dropLastWhile { it.isEmpty() }
-        val catLines = cats.dropLastWhile { it.isEmpty() }
-
-        if (codeLines.size != catLines.size) {
-            return Pair(false, "Jumlah baris Kode (${codeLines.size}) berbeda dgn Kategori (${catLines.size})!")
-        }
-
-        if (codeLines.isEmpty()) return Pair(false, "Teks kosong.")
-
-        val emptyRowErrors = mutableListOf<String>()
-        for (i in codeLines.indices) {
-            val code = codeLines[i].trim()
-            val cat = catLines[i].trim()
-            if (code.isBlank() && cat.isBlank()) {
-                emptyRowErrors.add("Baris ${i + 1}: Kode & Kategori kosong")
-            } else if (code.isBlank()) {
-                emptyRowErrors.add("Baris ${i + 1}: Kode kosong")
-            } else if (cat.isBlank()) {
-                emptyRowErrors.add("Baris ${i + 1}: Kategori kosong")
-            }
-        }
-        if (emptyRowErrors.isNotEmpty()) {
-            return Pair(false, "Ditemukan baris kosong:\n\n${emptyRowErrors.joinToString("\n")}\n\nPastikan semua baris terisi lengkap.")
-        }
-
-        val tickets = mutableListOf<Ticket>()
-        val codeToRows = mutableMapOf<String, MutableList<Int>>()
-
-        for (i in codeLines.indices) {
-            val code = codeLines[i].trim()
-            val cat = catLines[i].trim()
-            codeToRows.getOrPut(code) { mutableListOf() }.add(i + 1)
-            tickets.add(Ticket(qrContent = code, ticketType = cat, isScanned = false, eventId = evtId))
-        }
-
-        if (tickets.isEmpty()) return Pair(false, "Tidak ada data tiket valid.")
-
-        val internalDuplicates = codeToRows.filter { it.value.size > 1 }
-        if (internalDuplicates.isNotEmpty()) {
-            val messages = internalDuplicates.map { (code, rows) ->
-                "Kode \"$code\" duplikat di baris: ${rows.joinToString(", ")}"
-            }
-            return Pair(false, "Ditemukan kode duplikat di input:\n\n${messages.joinToString("\n")}")
-        }
-
-        val allCodes = tickets.map { it.qrContent }
-        val existingCodes = ticketRepository.getExistingCodes(allCodes, evtId).toSet()
-        if (existingCodes.isNotEmpty()) {
-            val dbDuplicateRows = mutableListOf<String>()
-            for (i in codeLines.indices) {
-                val code = codeLines[i].trim()
-                if (code in existingCodes) {
-                    dbDuplicateRows.add("Baris ${i + 1}: \"$code\"")
-                }
-            }
-            return Pair(false, "Kode sudah ada di database:\n\n${dbDuplicateRows.joinToString("\n")}")
-        }
-
-        ticketRepository.insertTickets(tickets)
-        val detailsStr = tickets.joinToString("||") { "${it.qrContent}::${it.ticketType}" }
-        val desc = if (tickets.size == 1) "Penambahan pada kode: ${tickets.first().qrContent}" else "Penambahan ${tickets.size} tiket"
-        historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(eventId = evtId, action = "Tambah", description = desc, details = if (tickets.size > 1) detailsStr else ""))
-        refreshTicketCount()
-        return Pair(true, "Ditambahkan!")
-    }
-
     fun clearScanResult() {
         _scanResultStatus.value = ScanStatus.Idle
     }
@@ -671,7 +619,7 @@ class TicketViewModel @Inject constructor(
 
         return when (result) {
             is com.tkrz.qrtix.data.repository.OnlineScanResult.Success -> {
-                _isOnline.value = true
+
                 val scanTime = dateFormat.format(java.util.Date(result.scannedAt))
                 _scanResultStatus.value = ScanStatus.Success(result.ticket, scanTime)
                 // Log scan action to history
@@ -685,18 +633,18 @@ class TicketViewModel @Inject constructor(
                 1
             }
             is com.tkrz.qrtix.data.repository.OnlineScanResult.AlreadyScanned -> {
-                _isOnline.value = true
+
                 val scanTime = if (result.scannedAt > 0) dateFormat.format(java.util.Date(result.scannedAt)) else "Tidak diketahui"
                 _scanResultStatus.value = ScanStatus.AlreadyScanned(result.ticket, scanTime)
                 2
             }
             is com.tkrz.qrtix.data.repository.OnlineScanResult.NotFound -> {
-                _isOnline.value = true
+
                 _scanResultStatus.value = ScanStatus.Invalid(qrContent)
                 3
             }
             is com.tkrz.qrtix.data.repository.OnlineScanResult.NetworkError -> {
-                _isOnline.value = false
+
                 _scanResultStatus.value = ScanStatus.NetworkError(result.message)
                 5 // Network Error
             }
@@ -761,14 +709,36 @@ class TicketViewModel @Inject constructor(
         }
     }
 
+    suspend fun exportEventToQrtix(eventId: Long): android.content.Intent? {
+        return databaseTransferManager.exportEvent(eventId)
+    }
+
+    suspend fun importEventFromQrtix(uri: android.net.Uri): Boolean {
+        val success = databaseTransferManager.importEvent(uri)
+        if (success) {
+            refreshTicketCount() // Refresh event list
+        }
+        return success
+    }
+
     fun undoHistoryLog(log: com.tkrz.qrtix.data.HistoryLog) {
         if ((log.action == "Hapus" || log.action == "Hapus Semua") && log.details.isNotBlank() && !log.isUndone) {
             viewModelScope.launch(Dispatchers.IO) {
-                val ticketsToRestore = deserializeTickets(log.details)
-                if (ticketsToRestore.isNotEmpty()) {
-                    ticketRepository.insertTickets(ticketsToRestore)
-                    historyLogRepository.markAsUndone(log.id)
-                    refreshTicketCount()
+                try {
+                    val ticketsToRestore = deserializeTickets(log.details).filter { 
+                        it.qrContent.isNotBlank() && it.ticketType.isNotBlank() 
+                    }
+                    if (ticketsToRestore.isNotEmpty()) {
+                        ticketRepository.insertTickets(ticketsToRestore)
+                        historyLogRepository.markAsUndone(log.id)
+                        refreshTicketCount()
+                        showSuccessToast("Berhasil membatalkan penghapusan ${ticketsToRestore.size} tiket")
+                    } else {
+                        showErrorToast("Data tiket tidak valid atau kosong.")
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    showErrorToast("Gagal membatalkan penghapusan: ${e.message}")
                 }
             }
         }
@@ -791,7 +761,7 @@ class TicketViewModel @Inject constructor(
                     ticketRepository.syncTicketsFromCloud(eventId)
                     _lastSyncTime.value = System.currentTimeMillis()
                     refreshTicketCount()
-                    _isOnline.value = true
+    
                 } catch (e: Exception) {
                     // Silently fail and retry next interval
                 }
@@ -811,12 +781,12 @@ class TicketViewModel @Inject constructor(
                 ticketRepository.syncTicketsFromCloud(eventId)
                 _lastSyncTime.value = System.currentTimeMillis()
                 refreshTicketCount()
-                _isOnline.value = true
+
                 withContext(Dispatchers.Main) {
                     onResult(true, "Sinkronisasi berhasil")
                 }
             } catch (e: Exception) {
-                _isOnline.value = false
+
                 withContext(Dispatchers.Main) {
                     onResult(false, "Gagal sinkronisasi: ${e.message}")
                 }

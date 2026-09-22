@@ -46,7 +46,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.runtime.collectAsState
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.tkrz.qrtix.R
+import com.tkrz.qrtix.viewmodel.SplashViewModel
 import kotlinx.coroutines.delay
 import kotlin.math.min
 
@@ -57,23 +69,36 @@ private val TextMuted      = Color(0xFF6B7280)
 private val TextLight      = Color(0xFFB0B0C0)
 
 @Composable
-fun SplashScreen(onFinished: () -> Unit) {
-
-    // ── Loading progress ──────────────────────────────────────────────────────
-    var progress by remember { mutableIntStateOf(0) }
+fun SplashScreen(
+    viewModel: SplashViewModel = hiltViewModel(),
+    onFinished: () -> Unit,
+    onRequireLogin: () -> Unit
+) {
+    val currentStage by viewModel.currentStage.collectAsState()
+    val syncError by viewModel.syncError.collectAsState()
+    val isOfflineBlocking by viewModel.isOfflineBlocking.collectAsState()
+    val isAuthMissing by viewModel.isAuthMissing.collectAsState()
+    val isFinished by viewModel.isFinished.collectAsState()
 
     LaunchedEffect(Unit) {
-        while (progress < 100) {
-            delay(400L)
-            progress = min(100, progress + (5..20).random())
+        viewModel.startSync()
+    }
+
+    LaunchedEffect(isFinished) {
+        if (isFinished) {
+            onFinished()
         }
-        delay(500L)
-        onFinished()
+    }
+
+    LaunchedEffect(isAuthMissing) {
+        if (isAuthMissing) {
+            onRequireLogin()
+        }
     }
 
     val animatedProgress by animateFloatAsState(
-        targetValue = progress / 100f,
-        animationSpec = tween(300, easing = FastOutLinearInEasing),
+        targetValue = currentStage.progress,
+        animationSpec = tween(500, easing = FastOutLinearInEasing),
         label = "progress"
     )
 
@@ -259,37 +284,63 @@ fun SplashScreen(onFinished: () -> Unit) {
                     .padding(bottom = 56.dp)
                     .graphicsLayer { alpha = bottomAlpha }
             ) {
-                // Track
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.55f)
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(Color(0xFFE5E5F0))
-                ) {
-                    // Fill with gradient
+                // Progress tracking
+                if (!isOfflineBlocking && syncError == null) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(animatedProgress)
-                            .fillMaxHeight()
+                            .fillMaxWidth(0.55f)
+                            .height(5.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(PrimaryColor.copy(alpha = 0.65f), PrimaryColor)
-                                )
-                            )
-                    )
+                            .background(Color(0xFFE5E5F0))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(animatedProgress)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(50))
+                                .background(Brush.horizontalGradient(listOf(PrimaryColor.copy(alpha = 0.65f), PrimaryColor)))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (currentStage == com.tkrz.qrtix.viewmodel.SyncStage.COMPLETE) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = currentStage.label,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextMuted,
+                            letterSpacing = 1.sp
+                        )
+                    }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "MEMUAT DATA  $progress%",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = TextMuted,
-                    letterSpacing = 2.sp
-                )
+                
+                if (isOfflineBlocking) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.WifiOff, contentDescription = null, tint = Color(0xFFF44336), modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Koneksi internet diperlukan untuk masuk ke QRTix", fontSize = 12.sp, color = TextDark, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(onClick = { viewModel.startSync() }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor)) {
+                            Text("Coba Lagi", fontSize = 14.sp)
+                        }
+                    }
+                } else if (syncError != null) {
+                    val errorMsg = syncError
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF9800), modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(errorMsg ?: "", fontSize = 12.sp, color = TextDark, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(onClick = { viewModel.startSync() }, colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor)) {
+                            Text("Coba Lagi", fontSize = 14.sp)
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(6.dp))
 

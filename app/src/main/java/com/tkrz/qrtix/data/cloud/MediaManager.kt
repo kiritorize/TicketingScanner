@@ -12,6 +12,7 @@ import javax.inject.Singleton
 class MediaManager @Inject constructor(
     private val driveService: GoogleDriveService,
     private val cloudPreferences: CloudPreferences,
+    private val driveFolderManager: DriveFolderManager,
     @ApplicationContext private val context: Context
 ) {
     /**
@@ -63,18 +64,19 @@ class MediaManager @Inject constructor(
      * Uploads a local file to the QRTix_Media folder in Google Drive.
      * Returns the Google Drive File ID.
      */
-    suspend fun uploadMedia(localFile: File): String? = withContext(Dispatchers.IO) {
+    suspend fun uploadMedia(localFile: File, eventName: String, isLogo: Boolean): String? = withContext(Dispatchers.IO) {
         try {
             if (!localFile.exists()) return@withContext null
             
-            val mediaFolderId = cloudPreferences.mediaFolderId
-            if (mediaFolderId == null) {
-                // If for some reason media folder is not initialized, we can't upload
-                return@withContext null
-            }
+            val profilesFolderId = cloudPreferences.profilesFolderId ?: return@withContext null
+            
+            val eventFolderId = driveFolderManager.getOrCreateFolder(eventName, profilesFolderId) ?: return@withContext null
+            
+            val subfolderName = if (isLogo) "Logo" else "Design"
+            val targetFolderId = driveFolderManager.getOrCreateFolder(subfolderName, eventFolderId) ?: return@withContext null
             
             val mimeType = "image/jpeg" // Assuming all media are converted or are jpegs
-            val fileId = driveService.uploadFile(localFile.name, mimeType, localFile, mediaFolderId)
+            val fileId = driveService.uploadFile(localFile.name, mimeType, localFile, targetFolderId)
             
             // Immediately cache this newly uploaded file using its ID so we don't have to download it later
             val cacheDir = File(context.cacheDir, "QRTix_Media_Cache")

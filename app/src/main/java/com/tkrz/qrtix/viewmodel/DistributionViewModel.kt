@@ -21,7 +21,9 @@ import java.io.FileWriter
 class DistributionViewModel @Inject constructor(
     private val distributionRepository: DistributionRepository,
     private val gmailService: com.tkrz.qrtix.data.cloud.GmailService,
-    private val eventRepository: com.tkrz.qrtix.data.repository.EventRepository
+    private val eventRepository: com.tkrz.qrtix.data.repository.EventRepository,
+    private val historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository,
+    private val eventPreferences: com.tkrz.qrtix.data.EventPreferences
 ) : ViewModel() {
 
     private val _validationResult = MutableStateFlow<ValidationResult?>(null)
@@ -76,10 +78,19 @@ class DistributionViewModel @Inject constructor(
                         eventRepository.updateEvent(event.copy(distributionSheetId = spreadsheetId))
                     }
                 } else {
-                    _errorMessage.value = "Gagal menyimpan data distribusi ke Google Sheets."
+                    _errorMessage.value = "Gagal menyimpan data distribusi ke Google Sheets tanpa error spesifik."
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.message ?: "Terjadi kesalahan saat menyimpan data."
+                android.util.Log.e("Distribution", "ViewModel save failed", e)
+                val msg = e.message ?: ""
+                val userMsg = when {
+                    msg.contains("not found", ignoreCase = true) || msg.contains("404") -> "Spreadsheet tidak ditemukan. Pastikan ID Spreadsheet valid dan Anda memiliki akses."
+                    msg.contains("Quota exceeded", ignoreCase = true) || msg.contains("429") -> "Limit API Google Sheets terlampaui. Coba lagi nanti."
+                    msg.contains("timeout", ignoreCase = true) -> "Koneksi timeout. Periksa internet Anda."
+                    msg.contains("already exists", ignoreCase = true) -> "Sheet 'Distribution' sudah ada di spreadsheet tersebut."
+                    else -> "Gagal menyimpan: ${e.message}"
+                }
+                _errorMessage.value = userMsg
             } finally {
                 _isLoading.value = false
             }
@@ -219,6 +230,16 @@ class DistributionViewModel @Inject constructor(
                 _errorMessage.value = e.message ?: "Terjadi kesalahan sistem saat mengirim."
             } finally {
                 _isSending.value = false
+                if (_sendingProgress.value.pending == 0 && (_sendingProgress.value.sent > 0 || _sendingProgress.value.failed > 0)) {
+                    val s = _sendingProgress.value.sent
+                    val f = _sendingProgress.value.failed
+                    historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                        eventId = eventPreferences.activeEventId.value,
+                        action = "Distribusi",
+                        description = "Kirim tiket ke ${s + f} penerima via email",
+                        details = "Berhasil: $s, Gagal: $f"
+                    ))
+                }
             }
         }
     }

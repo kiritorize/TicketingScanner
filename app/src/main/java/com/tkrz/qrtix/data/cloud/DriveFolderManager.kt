@@ -42,6 +42,19 @@ class DriveFolderManager @Inject constructor(
         }
     }
 
+    suspend fun checkFolderExists(folderName: String, parentFolderId: String? = null): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val existingId = driveService.findFileByName(
+                name = folderName,
+                mimeType = "application/vnd.google-apps.folder",
+                parentFolderId = parentFolderId
+            )
+            existingId != null
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     suspend fun renameFolder(folderId: String, newName: String, parentFolderId: String? = null): Boolean {
         val success = driveService.renameFile(folderId, newName)
         if (success) {
@@ -61,5 +74,9 @@ class DriveFolderManager @Inject constructor(
      */
     fun clearCache() {
         folderCache.clear()
+    }
+
+    fun invalidateKey(cacheKey: String) {
+        folderCache.remove(cacheKey)
     }
 }

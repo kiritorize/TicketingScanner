@@ -102,4 +102,18 @@ class CategoryRepository @Inject constructor(
             e.printStackTrace()
         }
     }
+
+    suspend fun checkCategoryCodeExistsInCloud(eventId: Long, code: String): Boolean = withContext(Dispatchers.IO) {
+        val spreadsheetId = cloudPreferences.spreadsheetId ?: return@withContext false
+        try {
+            val data = sheetsService.readRange(spreadsheetId, "Categories!A2:D") ?: return@withContext false
+            data.any { row ->
+                val rowEventId = row.getOrNull(1)?.toString()?.toLongOrNull()
+                val rowCode = row.getOrNull(3)?.toString()
+                rowEventId == eventId && rowCode.equals(code, ignoreCase = true)
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
 }

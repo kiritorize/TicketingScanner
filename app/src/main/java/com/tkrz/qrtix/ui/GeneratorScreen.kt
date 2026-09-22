@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.github.doyaaaaaken.kotlincsv.dsl.csvReader
 import com.tkrz.qrtix.ui.components.EventBadge
+import com.tkrz.qrtix.ui.CategoryManagementDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,8 +48,7 @@ fun GeneratorScreen(
     var quotaCategory by remember { mutableStateOf("") }
     var quotaCategoryExpanded by remember { mutableStateOf(false) }
     var quotaCount by remember { mutableStateOf("50") }
-    var quotaPrefix by remember { mutableStateOf(activeEvent?.eventCode ?: "EVNT") }
-    var directInsert by remember { mutableStateOf(false) }
+    val quotaPrefix = activeEvent?.eventCode ?: "EVNT"
 
     var showGenerateConfirmation by remember { mutableStateOf(false) }
     var generateCodes by remember { mutableStateOf(emptyList<String>()) }
@@ -58,6 +58,39 @@ fun GeneratorScreen(
     val activity = context as? android.app.Activity
     val scope = rememberCoroutineScope()
     var pendingUploadTasks by remember { mutableStateOf<List<com.tkrz.qrtix.data.cloud.UploadTask>>(emptyList()) }
+    
+    var showCategoryDialog by remember { mutableStateOf(false) }
+    var keepScreenOn by remember { mutableStateOf(true) }
+
+    val generationProgress by com.tkrz.qrtix.services.GenerationTaskHolder.progress.collectAsState()
+    
+    LaunchedEffect(generationProgress) {
+        if (generationProgress.total > 0 && !generationProgress.isFinished) {
+            isGenerating = true
+            progressText = "Menghasilkan QR: ${generationProgress.current} / ${generationProgress.total}"
+        } else if (generationProgress.isFinished && generationProgress.total > 0) {
+            isGenerating = false
+            if (generationProgress.successFile != null) {
+                pendingUploadTasks = generationProgress.uploadTasks
+                showFinishDialog = true
+            }
+            com.tkrz.qrtix.services.GenerationTaskHolder.reset()
+        }
+    }
+
+    if (showCategoryDialog) {
+        CategoryManagementDialog(
+            categories = ticketCategories,
+            onDismissRequest = { showCategoryDialog = false },
+            onAddCategory = { name, code -> 
+                viewModel.addCategory(name, code)
+                quotaCategory = code
+                showCategoryDialog = false
+            },
+            onUpdateCategory = { id, newName -> viewModel.updateCategory(id, newName) },
+            onDeleteCategory = { id -> viewModel.deleteCategory(id) }
+        )
+    }
 
     fun executeGeneration() {
         val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.getDefault()).format(java.util.Date())
@@ -74,26 +107,48 @@ fun GeneratorScreen(
                 )
             }
             
-            val exporter = com.tkrz.qrtix.utils.TicketExporter(context)
+            var insertedCount = 0
+            if (selectedTabIndex == 1 && activeEvent != null) {
+                progressText = "Menyimpan ke Database..."
+                val catForLog = generateCats.firstOrNull() ?: ""
+                val evtName = activeEvent?.name ?: ""
+                insertedCount = viewModel.insertBatchTickets(dummyTickets, isGenerated = true, categoryForLog = catForLog, eventNameForLog = evtName)
+            }
+
             val resolvedLogoPath = viewModel.resolveMedia(activeEvent?.logoPath)
             val eventForExport = activeEvent?.copy(logoPath = resolvedLogoPath)
 
-            val (file, uploadTasks) = exporter.exportTicketsToZip(dummyTickets, eventForExport, fileName = zipName) { current, total ->
-                progressText = "Menghasilkan QR: $current / $total"
-            }
-            
-            if (directInsert && activeEvent != null) {
-                progressText = "Menyimpan ke Database..."
-                val addedCount = viewModel.insertBatchTickets(dummyTickets)
-                withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "$addedCount tiket ditambahkan ke database.", android.widget.Toast.LENGTH_LONG).show()
+            if (keepScreenOn) {
+                val exporter = com.tkrz.qrtix.utils.TicketExporter(context)
+                val (file, uploadTasks) = exporter.exportTicketsToZip(dummyTickets, eventForExport, fileName = zipName) { current, total ->
+                    progressText = "Menghasilkan QR: $current / $total"
                 }
-            }
-            
-            isGenerating = false
-            if (file != null) {
-                pendingUploadTasks = uploadTasks
-                showFinishDialog = true
+                isGenerating = false
+                if (file != null) {
+                    pendingUploadTasks = uploadTasks
+                    showFinishDialog = true
+                }
+            } else {
+                com.tkrz.qrtix.services.GenerationTaskHolder.reset()
+                com.tkrz.qrtix.services.GenerationTaskHolder.dummyTickets = dummyTickets
+                com.tkrz.qrtix.services.GenerationTaskHolder.eventForExport = eventForExport
+                com.tkrz.qrtix.services.GenerationTaskHolder.zipName = zipName
+                
+                val serviceIntent = android.content.Intent(context, com.tkrz.qrtix.services.GenerationService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                
+                // Allow user to hide dialog
+                isGenerating = false
+                android.widget.Toast.makeText(context, "Generate berjalan di latar belakang", android.widget.Toast.LENGTH_LONG).show()
+                
+                // If they minimize app, they see notification. If they stay here, LaunchedEffect catches it.
+                // But wait, if they stay, LaunchedEffect will set isGenerating=true again.
+                // We don't want to block the screen if they opted for background.
+                // So if keepScreenOn is false, we let them know it's running via Toast.
             }
         }
     }
@@ -240,10 +295,22 @@ fun GeneratorScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedTextField(
                         value = quotaPrefix,
-                        onValueChange = { quotaPrefix = it.uppercase() },
-                        label = { Text("Prefix Event (Cth: EVNT)") },
-                        keyboardOptions = KeyboardOptions(capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters),
-                        modifier = Modifier.fillMaxWidth()
+                        onValueChange = {},
+                        label = { Text("Kode Event (Prefix)") },
+                        readOnly = true,
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    )
+                    Text(
+                        text = "Prefix diambil dari Kode Event yang sudah ditetapkan saat membuat profil event.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     ExposedDropdownMenuBox(
@@ -280,6 +347,14 @@ fun GeneratorScreen(
                                         }
                                     )
                                 }
+                                Divider(modifier = Modifier.padding(vertical = 4.dp))
+                                DropdownMenuItem(
+                                    text = { Text("+ Tambah Kategori Baru", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium) },
+                                    onClick = {
+                                        quotaCategoryExpanded = false
+                                        showCategoryDialog = true
+                                    }
+                                )
                             }
                         }
                     }
@@ -294,12 +369,17 @@ fun GeneratorScreen(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = directInsert, onCheckedChange = { directInsert = it })
-                    Text("Langsung masukkan ke Database: ${activeEvent?.name}")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                ) {
+                    Switch(
+                        checked = keepScreenOn,
+                        onCheckedChange = { keepScreenOn = it }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Layar tetap menyala selama proses", fontSize = 14.sp)
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
                     onClick = {
@@ -346,13 +426,11 @@ fun GeneratorScreen(
                             return@Button
                         }
 
-                        if (directInsert) {
-                            generateCodes = codes
-                            generateCats = cats
+                        generateCodes = codes
+                        generateCats = cats
+                        if (selectedTabIndex == 1) {
                             showGenerateConfirmation = true
                         } else {
-                            generateCodes = codes
-                            generateCats = cats
                             executeGeneration()
                         }
                     },
@@ -368,8 +446,8 @@ fun GeneratorScreen(
     if (showGenerateConfirmation) {
         AlertDialog(
             onDismissRequest = { showGenerateConfirmation = false },
-            title = { Text("Konfirmasi Simpan ke Database") },
-            text = { Text("Anda telah memilih untuk langsung menyimpan ${generateCodes.size} tiket ke event **${activeEvent?.name}**. Lanjutkan?") },
+            title = { Text("Konfirmasi Generate & Simpan") },
+            text = { Text("Akan men-generate ${generateCodes.size} tiket [${generateCats.firstOrNull() ?: "-"}] untuk event **${activeEvent?.name}** dan otomatis memasukkannya ke database. Lanjutkan?") },
             confirmButton = {
                 Button(onClick = {
                     showGenerateConfirmation = false
@@ -420,7 +498,18 @@ fun GeneratorScreen(
                 }
             },
             title = { Text("Berhasil!") },
-            text = { Text("File ZIP berhasil disimpan di folder Documents/QRTix.\n\nApakah Anda ingin mencadangkan gambar QR secara satuan ke Google Drive agar sinkron dengan Cloud?") }
+            text = { 
+                Column {
+                    Text("✅ Berhasil men-generate ${generateCodes.size} tiket")
+                    if (selectedTabIndex == 1) {
+                        Text("✅ ${generateCodes.size} tiket ditambahkan ke database")
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("File ZIP berhasil disimpan di folder Documents/QRTix.")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Apakah Anda ingin mencadangkan gambar QR secara satuan ke Google Drive agar sinkron dengan Cloud?")
+                }
+            }
         )
     }
 }

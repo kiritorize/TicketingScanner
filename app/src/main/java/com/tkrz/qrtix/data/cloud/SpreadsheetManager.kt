@@ -24,22 +24,33 @@ class SpreadsheetManager @Inject constructor(
                 cloudPreferences.folderId = folderId
             }
 
-            var mediaFolderId = cloudPreferences.mediaFolderId
-            if (mediaFolderId == null) {
-                mediaFolderId = driveService.findFileByName("QRTix_Media", "application/vnd.google-apps.folder", folderId)
-                if (mediaFolderId == null) {
-                    mediaFolderId = driveService.createFolder("QRTix_Media", folderId)
+            // 1.5. Ensure System and Profiles folders exist
+            var systemFolderId = cloudPreferences.systemFolderId
+            if (systemFolderId == null) {
+                systemFolderId = driveService.findFileByName("System", "application/vnd.google-apps.folder", folderId)
+                if (systemFolderId == null) {
+                    systemFolderId = driveService.createFolder("System", folderId)
                 }
-                cloudPreferences.mediaFolderId = mediaFolderId
+                cloudPreferences.systemFolderId = systemFolderId
+            }
+
+            var profilesFolderId = cloudPreferences.profilesFolderId
+            if (profilesFolderId == null) {
+                profilesFolderId = driveService.findFileByName("Profiles", "application/vnd.google-apps.folder", folderId)
+                if (profilesFolderId == null) {
+                    profilesFolderId = driveService.createFolder("Profiles", folderId)
+                }
+                cloudPreferences.profilesFolderId = profilesFolderId
             }
 
             // 2. Ensure Spreadsheet exists
             var spreadsheetId = cloudPreferences.spreadsheetId
+            var needsMigration = false
+
             if (spreadsheetId != null) {
                 // Verify it still exists and is accessible
                 try {
                     sheetsService.getSpreadsheet(spreadsheetId)
-                    return@withContext Result.success(spreadsheetId)
                 } catch (e: Exception) {
                     // Inaccessible or deleted, reset
                     cloudPreferences.spreadsheetId = null
@@ -48,14 +59,33 @@ class SpreadsheetManager @Inject constructor(
             }
 
             if (spreadsheetId == null) {
-                // Try to find it in the folder first
-                spreadsheetId = driveService.findFileByName("QRTix_Data", "application/vnd.google-apps.spreadsheet", folderId)
+                // Try to find it in System folder first
+                spreadsheetId = driveService.findFileByName("QRTix_Data", "application/vnd.google-apps.spreadsheet", systemFolderId)
+                
+                if (spreadsheetId == null) {
+                    // Try to find it in old root folder (QRTix) for migration
+                    spreadsheetId = driveService.findFileByName("QRTix_Data", "application/vnd.google-apps.spreadsheet", folderId)
+                    if (spreadsheetId != null) {
+                        needsMigration = true
+                    }
+                }
             }
 
             if (spreadsheetId == null) {
-                // Create new spreadsheet
-                spreadsheetId = driveService.createSpreadsheetFile("QRTix_Data", folderId)
+                // Create new spreadsheet in System
+                spreadsheetId = driveService.createSpreadsheetFile("QRTix_Data", systemFolderId)
                 initializeSchema(spreadsheetId)
+            } else if (needsMigration) {
+                // Migrate from root to System
+                driveService.moveFile(spreadsheetId, systemFolderId)
+                
+                // Migrate old event folders from root to Profiles
+                val oldFolders = driveService.listFoldersInFolder(folderId)
+                for (oldFolder in oldFolders) {
+                    if (oldFolder.name != "System" && oldFolder.name != "Profiles" && oldFolder.name != "QRTix_Media") {
+                        driveService.moveFile(oldFolder.id, profilesFolderId)
+                    }
+                }
             }
 
             cloudPreferences.spreadsheetId = spreadsheetId
@@ -92,7 +122,7 @@ class SpreadsheetManager @Inject constructor(
         sheetsService.batchUpdate(spreadsheetId, requests)
 
         // 3. Setup headers for each sheet
-        val eventsHeaders = listOf("id", "name", "createdAt", "lastAccessedAt", "logoFileId", "eventCode", "bgFileId", "qrX", "qrY", "qrScale", "qrRotation")
+        val eventsHeaders = listOf("id", "name", "createdAt", "lastAccessedAt", "logoFileId", "eventCode", "bgFileId", "qrX", "qrY", "qrScale", "qrRotation", "distributionSheetId")
         val ticketsHeaders = listOf("id", "qrContent", "ticketType", "isScanned", "createdAt", "scannedAt", "isModified", "eventId")
         val historyLogsHeaders = listOf("id", "eventId", "action", "description", "details", "timestamp", "isUndone")
         val categoriesHeaders = listOf("id", "eventId", "categoryName", "categoryCode")

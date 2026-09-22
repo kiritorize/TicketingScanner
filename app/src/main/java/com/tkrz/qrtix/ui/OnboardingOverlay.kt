@@ -36,7 +36,10 @@ data class OnboardingStep(
 )
 
 @Composable
-fun OnboardingOverlay(onComplete: () -> Unit) {
+fun OnboardingOverlay(
+    isGuideMode: Boolean = false,
+    onComplete: () -> Unit
+) {
     val steps = listOf(
         OnboardingStep(
             title = "1. Buat Event Baru",
@@ -187,7 +190,7 @@ fun OnboardingOverlay(onComplete: () -> Unit) {
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor)
                 ) {
                     Text(
-                        text = if (currentStep < steps.size - 1) "Lanjut" else "Mulai",
+                        text = if (currentStep < steps.size - 1) "Lanjut" else if (isGuideMode) "Tutup" else "Mulai Sekarang",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )

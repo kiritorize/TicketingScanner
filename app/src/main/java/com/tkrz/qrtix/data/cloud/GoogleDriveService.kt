@@ -98,4 +98,51 @@ class GoogleDriveService @Inject constructor(
             false
         }
     }
+
+    suspend fun moveFile(fileId: String, newParentId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Retrieve the existing parents to remove
+            val file = driveService.files().get(fileId)
+                .setFields("parents")
+                .execute()
+            val previousParents = file.parents?.joinToString(",") ?: ""
+            
+            // Move the file to the new folder
+            driveService.files().update(fileId, null)
+                .setAddParents(newParentId)
+                .setRemoveParents(previousParents)
+                .setFields("id, parents")
+                .execute()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    suspend fun listFoldersInFolder(parentFolderId: String): List<com.google.api.services.drive.model.File> = withContext(Dispatchers.IO) {
+        try {
+            val query = "mimeType = 'application/vnd.google-apps.folder' and trashed = false and '$parentFolderId' in parents"
+            val result = driveService.files().list()
+                .setQ(query)
+                .setSpaces("drive")
+                .setFields("files(id, name)")
+                .execute()
+            result.files ?: emptyList()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun updateFileContent(fileId: String, mimeType: String, file: File): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val mediaContent = FileContent(mimeType, file)
+            driveService.files().update(fileId, null, mediaContent).execute()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
 }

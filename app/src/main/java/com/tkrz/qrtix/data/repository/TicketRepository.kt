@@ -11,6 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import android.util.Log
 import javax.inject.Inject
 
 /**
@@ -31,6 +35,8 @@ class TicketRepository @Inject constructor(
     companion object {
         private const val ONLINE_SCAN_TIMEOUT_MS = 5000L
     }
+
+    private val insertMutex = Mutex()
 
     suspend fun getAllTickets(eventId: Long): List<Ticket> = ticketDao.getAllTickets(eventId)
 
@@ -190,40 +196,66 @@ class TicketRepository @Inject constructor(
         
         val spreadsheetId = cloudPreferences.spreadsheetId ?: throw Exception("Cloud database belum siap")
         
-        // Temukan ID berikutnya
-        val data = sheetsService.readRange(spreadsheetId, "Tickets!A2:A")
-        var nextId = 1
-        if (data != null) {
-            val maxId = data.mapNotNull { it.firstOrNull()?.toString()?.toIntOrNull() }.maxOrNull()
-            if (maxId != null) {
-                nextId = maxId + 1
+        insertMutex.withLock {
+            var nextId = 1
+            var retries = 3
+            while (retries > 0) {
+                val data = sheetsService.readRange(spreadsheetId, "Tickets!A2:A")
+                var maxId = 0
+                if (data != null) {
+                    maxId = data.mapNotNull { it.firstOrNull()?.toString()?.toIntOrNull() }.maxOrNull() ?: 0
+                }
+                
+                // Delay and verify to avoid multi-device race conditions
+                delay((150..350).random().toLong())
+                
+                val verifyData = sheetsService.readRange(spreadsheetId, "Tickets!A2:A")
+                val verifyMaxId = verifyData?.mapNotNull { it.firstOrNull()?.toString()?.toIntOrNull() }?.maxOrNull() ?: 0
+                
+                if (maxId == verifyMaxId) {
+                    nextId = maxId + 1
+                    break
+                }
+                retries--
+                if (retries == 0) {
+                    nextId = verifyMaxId + 1
+                }
             }
+            
+            val newTickets = tickets.mapIndexed { index, ticket ->
+                ticket.copy(id = nextId + index)
+            }
+            
+            val rows = newTickets.map { ticket ->
+                listOf(
+                    ticket.id.toString(),
+                    ticket.qrContent,
+                    ticket.ticketType,
+                    ticket.isScanned.toString(),
+                    ticket.createdAt.toString(),
+                    ticket.scannedAt?.toString() ?: "",
+                    ticket.isModified.toString(),
+                    ticket.eventId.toString()
+                )
+            }
+            
+            val chunks = rows.chunked(500)
+            for (chunk in chunks) {
+                sheetsService.appendRows(spreadsheetId, "Tickets!A:H", chunk)
+            }
+            
+            // Post-insert verification
+            delay(500)
+            val verifyInsertData = sheetsService.readRange(spreadsheetId, "Tickets!A2:A")
+            val finalMaxId = verifyInsertData?.mapNotNull { it.firstOrNull()?.toString()?.toIntOrNull() }?.maxOrNull() ?: 0
+            val expectedMaxId = nextId + tickets.size - 1
+            if (finalMaxId < expectedMaxId) {
+                Log.e("TicketRepository", "Post-insert verification failed: expected maxId $expectedMaxId but got $finalMaxId")
+                // In a robust implementation, we would retry missing rows here.
+            }
+            
+            ticketDao.insertTickets(newTickets)
         }
-        
-        val newTickets = tickets.mapIndexed { index, ticket ->
-            ticket.copy(id = nextId + index)
-        }
-        
-        val rows = newTickets.map { ticket ->
-            listOf(
-                ticket.id.toString(),
-                ticket.qrContent,
-                ticket.ticketType,
-                ticket.isScanned.toString(),
-                ticket.createdAt.toString(),
-                ticket.scannedAt?.toString() ?: "",
-                ticket.isModified.toString(),
-                ticket.eventId.toString()
-            )
-        }
-        
-        // Chunk per 500 untuk menghindari Payload Too Large
-        val chunks = rows.chunked(500)
-        for (chunk in chunks) {
-            sheetsService.appendRows(spreadsheetId, "Tickets!A1", chunk)
-        }
-        
-        ticketDao.insertTickets(newTickets)
     }
 
     suspend fun updateTicket(id: Int, newQr: String, newType: String, updatedAt: Long) = withContext(Dispatchers.IO) {

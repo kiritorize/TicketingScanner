@@ -1,5 +1,5 @@
 package com.tkrz.qrtix.ui
-
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -75,6 +75,10 @@ fun DistributionScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    BackHandler(enabled = currentStep > 1) {
+        currentStep -= 1
+    }
 
     Scaffold(
         topBar = {
@@ -245,6 +249,7 @@ fun DistributionScreen(
                     Step4ReviewAndValidation(
                         result = validationResult,
                         isLoading = isLoading,
+                        errorMessage = errorMessage,
                         onBack = { currentStep = 3 },
                         onConfirm = {
                             distViewModel.saveDistributionMapping(
@@ -744,6 +749,7 @@ fun extractSpreadsheetId(url: String): String? {
 fun Step4ReviewAndValidation(
     result: com.tkrz.qrtix.data.ValidationResult?,
     isLoading: Boolean,
+    errorMessage: String?,
     onBack: () -> Unit,
     onConfirm: () -> Unit
 ) {
@@ -846,7 +852,7 @@ fun Step4ReviewAndValidation(
                     if (isLoading) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                     } else {
-                        Text("Simpan & Lanjutkan")
+                        Text(if (errorMessage != null) "Coba Lagi" else "Simpan & Lanjutkan")
                     }
                 }
             }

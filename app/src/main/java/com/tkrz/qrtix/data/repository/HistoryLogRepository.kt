@@ -73,7 +73,7 @@ class HistoryLogRepository @Inject constructor(
                     newLog.timestamp.toString(),
                     newLog.isUndone.toString()
                 )
-                sheetsService.appendRow(spreadsheetId, "HistoryLogs!A1", rowData)
+                sheetsService.appendRow(spreadsheetId, "HistoryLogs!A:G", rowData)
             }
         } catch (e: Exception) {
             e.printStackTrace()

@@ -13,6 +13,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.tkrz.qrtix.R
 import com.tkrz.qrtix.data.AuthPreferences
+import com.tkrz.qrtix.data.cloud.CloudPreferences
 import com.tkrz.qrtix.data.cloud.SpreadsheetManager
 import com.tkrz.qrtix.data.repository.EventRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,7 +36,8 @@ class AuthViewModel @Inject constructor(
     private val authPreferences: AuthPreferences,
     private val spreadsheetManager: SpreadsheetManager,
     private val eventRepository: EventRepository,
-    private val historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository
+    private val historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository,
+    private val cloudPreferences: CloudPreferences
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -51,26 +53,6 @@ class AuthViewModel @Inject constructor(
     fun checkAuthStatus() {
         if (authPreferences.isSignedIn.value) {
             _authState.value = AuthState.Authenticated("User", null)
-            // Can trigger async spreadsheet initialization in background
-            viewModelScope.launch {
-                val initResult = spreadsheetManager.initializeSpreadsheet()
-                if (initResult.isSuccess) {
-                    try {
-                        eventRepository.syncEventsFromCloud()
-                        historyLogRepository.syncLogsFromCloud()
-                    } catch (e: Exception) {
-                        Log.e("AuthViewModel", "Event or Log sync failed", e)
-                    }
-                } else {
-                    val ex = initResult.exceptionOrNull()
-                    if (ex is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
-                        Log.w("AuthViewModel", "Consent revoked, forcing sign out", ex)
-                        signOut()
-                    } else {
-                        Log.e("AuthViewModel", "Cloud init failed in background", ex)
-                    }
-                }
-            }
         } else {
             _authState.value = AuthState.Idle
         }
@@ -130,42 +112,21 @@ class AuthViewModel @Inject constructor(
                 val displayName = googleIdTokenCredential.displayName
                 
                 authPreferences.setSignedIn(true, email)
-                
-                val initResult = spreadsheetManager.initializeSpreadsheet()
-                if (initResult.isSuccess) {
-                    try {
-                        eventRepository.syncEventsFromCloud()
-                        historyLogRepository.syncLogsFromCloud()
-                        _authState.value = AuthState.Authenticated(email, displayName)
-                    } catch (e: Exception) {
-                        Log.e("AuthViewModel", "Sync failed", e)
-                        _authState.value = AuthState.Error("Gagal sinkronisasi data dengan cloud: ${e.message}")
-                        authPreferences.setSignedIn(false, null)
-                    }
-                } else {
-                    val ex = initResult.exceptionOrNull()
-                    if (ex is com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException) {
-                        Log.w("AuthViewModel", "User consent required", ex)
-                        _authState.value = AuthState.NeedsConsent(ex.intent)
-                    } else {
-                        Log.e("AuthViewModel", "Cloud init failed completely", ex)
-                        _authState.value = AuthState.Error("Gagal menyiapkan database cloud: ${ex?.message}")
-                        authPreferences.setSignedIn(false, null)
-                    }
-                }
-
+                _authState.value = AuthState.Authenticated(email, displayName)
             } catch (e: Exception) {
-                Log.e("AuthViewModel", "Received an invalid google id token response", e)
-                _authState.value = AuthState.Error("Format respon tidak valid")
+                Log.e("AuthViewModel", "Failed to decode JWT or complete sign in", e)
+                _authState.value = AuthState.Error("Terjadi kesalahan saat memproses login.")
+                authPreferences.setSignedIn(false, null)
             }
         } else {
-            Log.e("AuthViewModel", "Unexpected type of credential")
-            _authState.value = AuthState.Error("Tipe kredensial tidak dikenali")
+            _authState.value = AuthState.Error("Tipe credential tidak didukung")
         }
     }
 
     fun signOut() {
         authPreferences.setSignedIn(false, null)
+        authPreferences.setHasSeenOnboarding(false) // Reset onboarding
+        cloudPreferences.clear()
         _authState.value = AuthState.Idle
     }
 

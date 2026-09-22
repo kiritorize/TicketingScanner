@@ -219,8 +219,8 @@ class DistributionRepository @Inject constructor(
 
             true
         } catch (e: Exception) {
-            e.printStackTrace()
-            false
+            android.util.Log.e("Distribution", "Failed to save distribution", e)
+            throw e
         }
     }
 

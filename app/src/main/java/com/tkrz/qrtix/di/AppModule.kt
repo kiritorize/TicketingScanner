@@ -74,12 +74,34 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideEventBackupManager(
+        driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
+        driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
+        ticketDao: TicketDao,
+        @ApplicationContext context: Context
+    ): com.tkrz.qrtix.data.cloud.EventBackupManager {
+        return com.tkrz.qrtix.data.cloud.EventBackupManager(driveService, driveFolderManager, cloudPreferences, ticketDao, context)
+    }
+
+    @Provides
+    @Singleton
     fun provideEventRepository(
         eventDao: EventDao,
         sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
-        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
+        eventPreferences: com.tkrz.qrtix.data.EventPreferences,
+        eventBackupManager: com.tkrz.qrtix.data.cloud.EventBackupManager,
+        categoryDao: com.tkrz.qrtix.data.CategoryDao
     ): com.tkrz.qrtix.data.repository.EventRepository {
-        return com.tkrz.qrtix.data.repository.EventRepository(eventDao, sheetsService, cloudPreferences)
+        return com.tkrz.qrtix.data.repository.EventRepository(
+            eventDao,
+            sheetsService,
+            cloudPreferences,
+            eventPreferences,
+            eventBackupManager,
+            categoryDao
+        )
     }
 
     @Provides
@@ -165,8 +187,50 @@ object AppModule {
     fun provideBackgroundUploadManager(
         driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
         driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
-        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
+        historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository,
+        eventPreferences: com.tkrz.qrtix.data.EventPreferences
     ): com.tkrz.qrtix.data.cloud.BackgroundUploadManager {
-        return com.tkrz.qrtix.data.cloud.BackgroundUploadManager(driveService, driveFolderManager, cloudPreferences)
+        return com.tkrz.qrtix.data.cloud.BackgroundUploadManager(
+            driveService,
+            driveFolderManager,
+            cloudPreferences,
+            historyLogRepository,
+            eventPreferences
+        )
+    }
+    @Provides
+    @Singleton
+    fun provideNetworkMonitor(@ApplicationContext context: Context): com.tkrz.qrtix.utils.NetworkMonitor {
+        return com.tkrz.qrtix.utils.NetworkMonitor(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideMediaManager(
+        driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
+        driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
+        @ApplicationContext context: Context
+    ): com.tkrz.qrtix.data.cloud.MediaManager {
+        return com.tkrz.qrtix.data.cloud.MediaManager(driveService, cloudPreferences, driveFolderManager, context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDatabaseTransferManager(
+        eventRepository: com.tkrz.qrtix.data.repository.EventRepository,
+        ticketRepository: com.tkrz.qrtix.data.repository.TicketRepository,
+        categoryRepository: com.tkrz.qrtix.data.repository.CategoryRepository,
+        historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository,
+        @ApplicationContext context: Context
+    ): com.tkrz.qrtix.data.transfer.DatabaseTransferManager {
+        return com.tkrz.qrtix.data.transfer.DatabaseTransferManager(
+            eventRepository,
+            ticketRepository,
+            categoryRepository,
+            historyLogRepository,
+            context
+        )
     }
 }

@@ -144,9 +144,9 @@ fun DatabaseScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             if (inSelectionMode) {
-                                Text("${selectedTickets.size} Terpilih")
+                                Text("${selectedTickets.size} Terpilih", maxLines = 1, overflow = TextOverflow.Ellipsis)
                             } else {
-                                Text("List Lengkap Database") 
+                                Text("Database Tiket", maxLines = 1, overflow = TextOverflow.Ellipsis) 
                             }
                         }
                         EventBadge(event = activeEvent)

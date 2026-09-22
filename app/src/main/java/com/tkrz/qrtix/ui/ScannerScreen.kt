@@ -336,13 +336,6 @@ fun ScannerScreen(
             }
             Row {
                 IconButton(onClick = {
-                    viewModel.syncScannerData { success, msg ->
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    }
-                }) {
-                    Icon(Icons.Default.Sync, contentDescription = "Sinkronisasi", tint = Color.White)
-                }
-                IconButton(onClick = {
                     isFlashlightOn = !isFlashlightOn
                     cameraControl?.enableTorch(isFlashlightOn)
                 }) {

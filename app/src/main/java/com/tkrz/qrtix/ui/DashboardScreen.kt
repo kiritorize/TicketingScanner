@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,15 +30,19 @@ private val TextMuted = Color(0xFF6B7280)
 private val CardBg = Color.White
 private val BgColor = Color(0xFFF8F8FF)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     viewModel: TicketViewModel,
+    authState: com.tkrz.qrtix.viewmodel.AuthState,
     onNavigateToScanner: () -> Unit,
-    onNavigateToManagement: () -> Unit,
     onNavigateToDatabase: () -> Unit,
     onNavigateToGenerator: () -> Unit,
     onNavigateToTicketEditor: () -> Unit,
-    onNavigateToDistribution: () -> Unit
+    onNavigateToDistribution: () -> Unit,
+    onNavigateToEventProfile: (Long) -> Unit,
+    onNavigateToGuide: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val activeEvent by viewModel.activeEvent.collectAsState()
     val allEvents by viewModel.allEvents.collectAsState()
@@ -93,23 +98,54 @@ fun DashboardScreen(
         )
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     if (showEventDialog) {
         EventSelectionDialog(
             events = allEvents,
-            activeEventId = activeEvent?.id ?: 1L,
+            activeEventId = activeEvent?.id ?: -1L,
             onEventSelected = { id -> viewModel.switchEvent(id) },
-            onCreateEvent = { name -> viewModel.createAndSwitchEvent(name) },
-            onEditEvent = { id, newName, logoPath, bgPath ->
-                viewModel.updateEventName(id, newName)
-                viewModel.updateEventMedia(id, logoPath, bgPath)
+            onCreateEvent = { name, code -> viewModel.createAndSwitchEvent(name, code) },
+            onEditEventClick = { id ->
+                showEventDialog = false
+                onNavigateToEventProfile(id)
             },
             onDeleteEvent = { id -> viewModel.deleteEvent(id) },
+            onExportEventClick = { id ->
+                coroutineScope.launch {
+                    val intent = viewModel.exportEventToQrtix(id)
+                    if (intent != null) {
+                        context.startActivity(intent)
+                    } else {
+                        android.widget.Toast.makeText(context, "Gagal mengekspor data event", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onImportEventUri = { uri ->
+                coroutineScope.launch {
+                    val success = viewModel.importEventFromQrtix(uri)
+                    if (success) {
+                        android.widget.Toast.makeText(context, "Event berhasil diimpor", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(context, "Gagal mengimpor event dari file tersebut", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
             onDismissRequest = { showEventDialog = false }
         )
     }
 
     val ticketCategories by viewModel.ticketCategories.collectAsState()
     var showCategoryDialog by remember { mutableStateOf(false) }
+    var showBackupDetailDialog by remember { mutableStateOf(false) }
+
+    if (showBackupDetailDialog) {
+        com.tkrz.qrtix.ui.BackupDetailDialog(
+            uploadManager = viewModel.backgroundUploadManager,
+            onDismissRequest = { showBackupDetailDialog = false }
+        )
+    }
 
     if (showCategoryDialog) {
         CategoryManagementDialog(
@@ -121,24 +157,114 @@ fun DashboardScreen(
         )
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = BgColor
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Keluar dari Akun") },
+            text = { Text("Apakah Anda yakin ingin keluar? Data lokal akan tetap tersimpan di cloud.") },
+            confirmButton = {
+                Button(onClick = {
+                    showLogoutDialog = false
+                    onLogout()
+                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                    Text("Keluar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SidebarContent(
+                authState = authState,
+                onNavigateToDashboard = { coroutineScope.launch { drawerState.close() } },
+                onNavigateToScanner = { coroutineScope.launch { drawerState.close() }; onNavigateToScanner() },
+                onNavigateToGenerator = { coroutineScope.launch { drawerState.close() }; onNavigateToGenerator() },
+                onNavigateToDatabase = { coroutineScope.launch { drawerState.close() }; onNavigateToDatabase() },
+                onNavigateToTicketEditor = { coroutineScope.launch { drawerState.close() }; onNavigateToTicketEditor() },
+                onNavigateToDistribution = { coroutineScope.launch { drawerState.close() }; onNavigateToDistribution() },
+                onNavigateToBackup = { coroutineScope.launch { drawerState.close() }; showBackupDetailDialog = true },
+                onNavigateToEventProfile = { 
+                    coroutineScope.launch { drawerState.close() }
+                    activeEvent?.id?.let { onNavigateToEventProfile(it) } ?: run { showEventDialog = true }
+                },
+                onNavigateToCategory = { coroutineScope.launch { drawerState.close() }; showCategoryDialog = true },
+                onNavigateToGuide = { coroutineScope.launch { drawerState.close() }; onNavigateToGuide() },
+                onLogoutClick = { coroutineScope.launch { drawerState.close() }; showLogoutDialog = true }
+            )
+        }
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Spacer for status bar
-            Spacer(modifier = Modifier.height(24.dp))
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Dashboard", fontWeight = FontWeight.Bold, color = TextDark) },
+                    navigationIcon = {
+                        IconButton(onClick = { coroutineScope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = BgColor)
+                )
+            },
+            containerColor = BgColor
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
 
             val uploadState by viewModel.backgroundUploadManager.uploadState.collectAsState()
             com.tkrz.qrtix.ui.components.UploadProgressWidget(
                 uploadState = uploadState,
                 onDismiss = { viewModel.backgroundUploadManager.resetState() }
             )
+
+            if (allEvents.isEmpty()) {
+                // Task 11.5.4: Empty State
+                Spacer(modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.FolderOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(100.dp),
+                    tint = TextMuted.copy(alpha = 0.5f)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Belum ada profil event.",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+                Text(
+                    text = "Buat profil event pertama Anda untuk mulai menggunakan QRTix.",
+                    fontSize = 14.sp,
+                    color = TextMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = { showEventDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Buat Event Baru")
+                }
+                Spacer(modifier = Modifier.weight(1f))
+            } else {
 
             // 1. Active Event Card (Top Section)
             Card(
@@ -267,7 +393,7 @@ fun DashboardScreen(
                     Button(
                         onClick = onNavigateToGenerator,
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .height(64.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor)
@@ -275,19 +401,6 @@ fun DashboardScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.Add, contentDescription = null)
                             Text("Generate Tiket", fontSize = 12.sp)
-                        }
-                    }
-                    Button(
-                        onClick = onNavigateToManagement,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(64.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Upload, contentDescription = null)
-                            Text("Import Tiket", fontSize = 12.sp)
                         }
                     }
                 }
@@ -354,10 +467,10 @@ fun DashboardScreen(
 
             val secondaryButtons = mutableListOf(
                 Pair("Lihat Database", onNavigateToDatabase to Icons.Default.Storage),
-                Pair("Setup/Import", onNavigateToManagement to Icons.Default.Settings),
                 Pair("Alat Generator", onNavigateToGenerator to Icons.Default.Build),
                 Pair("Desain Tiket", onNavigateToTicketEditor to Icons.Default.Brush),
-                Pair("Kelola Kategori", { showCategoryDialog = true } to Icons.Default.Category)
+                Pair("Kelola Kategori", { showCategoryDialog = true } to Icons.Default.Category),
+                Pair("Detail Pencadangan", { showBackupDetailDialog = true } to Icons.Default.CloudSync)
             )
 
             if (activeEvent?.distributionSheetId != null) {
@@ -435,9 +548,24 @@ fun DashboardScreen(
                     fontSize = 12.sp,
                     color = TextMuted
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        viewModel.syncTicketsFromCloud()
+                    },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Sync,
+                        contentDescription = "Sync Sekarang",
+                        tint = PrimaryColor
+                    )
+                }
             }
         }
     }
+}
+}
 }
 
 @Composable
@@ -474,6 +602,152 @@ fun SecondaryActionButton(
                 fontWeight = FontWeight.Medium,
                 color = TextDark
             )
+        }
+    }
+}
+
+@Composable
+fun SidebarContent(
+    authState: com.tkrz.qrtix.viewmodel.AuthState,
+    onNavigateToDashboard: () -> Unit,
+    onNavigateToScanner: () -> Unit,
+    onNavigateToGenerator: () -> Unit,
+    onNavigateToDatabase: () -> Unit,
+    onNavigateToTicketEditor: () -> Unit,
+    onNavigateToDistribution: () -> Unit,
+    onNavigateToBackup: () -> Unit,
+    onNavigateToEventProfile: () -> Unit,
+    onNavigateToCategory: () -> Unit,
+    onNavigateToGuide: () -> Unit,
+    onLogoutClick: () -> Unit
+) {
+    ModalDrawerSheet(
+        modifier = Modifier.width(300.dp),
+        drawerContainerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // Header
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(PrimaryColor.copy(alpha = 0.1f))
+                    .padding(24.dp)
+            ) {
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(PrimaryColor.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(32.dp))
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    val email = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.email else "User"
+                    val name = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.displayName else null
+                    
+                    if (name != null) {
+                        Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextDark)
+                    }
+                    Text(email, fontSize = 14.sp, color = TextMuted)
+                }
+            }
+            
+            Divider()
+            
+            // Navigation Items
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(12.dp)
+            ) {
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                    label = { Text("Dashboard") },
+                    selected = true,
+                    onClick = onNavigateToDashboard
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) },
+                    label = { Text("Scanner") },
+                    selected = false,
+                    onClick = onNavigateToScanner
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Build, contentDescription = null) },
+                    label = { Text("Generator Tiket") },
+                    selected = false,
+                    onClick = onNavigateToGenerator
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Storage, contentDescription = null) },
+                    label = { Text("Database Tiket") },
+                    selected = false,
+                    onClick = onNavigateToDatabase
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Brush, contentDescription = null) },
+                    label = { Text("Desain Tiket") },
+                    selected = false,
+                    onClick = onNavigateToTicketEditor
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Send, contentDescription = null) },
+                    label = { Text("Distribusi Tiket") },
+                    selected = false,
+                    onClick = onNavigateToDistribution
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.CloudSync, contentDescription = null) },
+                    label = { Text("Pencadangan") },
+                    selected = false,
+                    onClick = onNavigateToBackup
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    label = { Text("Profil Event") },
+                    selected = false,
+                    onClick = onNavigateToEventProfile
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Category, contentDescription = null) },
+                    label = { Text("Kelola Kategori") },
+                    selected = false,
+                    onClick = onNavigateToCategory
+                )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.Help, contentDescription = null) },
+                    label = { Text("Panduan") },
+                    selected = false,
+                    onClick = onNavigateToGuide
+                )
+            }
+            
+            Divider()
+            
+            // Footer (Logout & Copyright)
+            Column(modifier = Modifier.padding(12.dp)) {
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                    label = { Text("Keluar Akun", color = MaterialTheme.colorScheme.error) },
+                    selected = false,
+                    onClick = onLogoutClick
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "© 2026 QRTix by Takarize",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
         }
     }
 }

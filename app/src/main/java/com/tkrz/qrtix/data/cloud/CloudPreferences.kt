@@ -24,6 +24,14 @@ class CloudPreferences @Inject constructor(
         get() = prefs.getString("SPREADSHEET_ID", null)
         set(value) = prefs.edit().putString("SPREADSHEET_ID", value).apply()
 
+    var systemFolderId: String?
+        get() = prefs.getString("SYSTEM_FOLDER_ID", null)
+        set(value) = prefs.edit().putString("SYSTEM_FOLDER_ID", value).apply()
+
+    var profilesFolderId: String?
+        get() = prefs.getString("PROFILES_FOLDER_ID", null)
+        set(value) = prefs.edit().putString("PROFILES_FOLDER_ID", value).apply()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
