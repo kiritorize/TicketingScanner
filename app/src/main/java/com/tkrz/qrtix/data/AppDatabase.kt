@@ -81,14 +81,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        fun getDatabase(context: Context): AppDatabase {
+        val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+            MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13
+        )
+
+        fun buildDatabaseName(email: String): String {
+            val cleanEmail = email.trim().lowercase()
+            if (cleanEmail.isEmpty() || cleanEmail == "default") {
+                return "qrtix_default"
+            }
+            val hash = cleanEmail.hashCode().toUInt().toString(16)
+            return "qrtix_$hash"
+        }
+
+        fun getDatabase(context: Context, dbName: String = "ticketing_database"): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "ticketing_database"
+                    dbName
                 )
-                .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                .addMigrations(*ALL_MIGRATIONS)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

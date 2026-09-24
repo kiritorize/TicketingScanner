@@ -82,18 +82,13 @@ class BackgroundUploadManager @Inject constructor(
         val failedTasks = mutableListOf<Pair<UploadTask, String>>()
         val totalFiles = tasksToProcess.size
 
-        // Ensure Root folder "QRTix" exists
-        val rootId = cloudPreferences.folderId ?: driveFolderManager.getOrCreateFolder("QRTix")
-        val profilesId = cloudPreferences.profilesFolderId ?: driveFolderManager.getOrCreateFolder("Profiles", rootId)
-        
+        // Use the account-scoped Profiles folder (set by initializeSpreadsheet)
+        val profilesId = cloudPreferences.profilesFolderId
         if (profilesId == null) {
             _uploadState.value = UploadState.Error("Gagal mengakses folder Profiles di Google Drive.")
             isUploading = false
-            uploadQueue.clear()
             return
         }
-        cloudPreferences.folderId = rootId
-        cloudPreferences.profilesFolderId = profilesId
 
         for (i in 0 until totalFiles) {
             val task = tasksToProcess[i]

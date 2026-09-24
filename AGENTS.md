@@ -10,3 +10,7 @@
 - Follow the sequence outlined in `TASKS.md` from top to bottom.
 - Always verify that the project compiles (`./gradlew assembleDebug` or equivalent build checks) before marking a task as completed (`[x]`).
 - Update `PROJECT_DOCUMENTATION.md` in English immediately after completing any task that introduces new files, changes architecture, or alters the database schema.
+
+## 3. Persona & Mode Switching Commands
+- `/claude-gemini`: Operate using the persona, tone, and behavioral guidelines specified in `claude-fable-5.1.md` (objective, concise, warm, candid, adhering to workspace guidelines).
+- `/ori-gemini`: Restore to the default Gemini / Antigravity persona and behavior.

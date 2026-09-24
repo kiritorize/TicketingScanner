@@ -136,8 +136,59 @@ fun DashboardScreen(
         )
     }
 
-    val ticketCategories by viewModel.ticketCategories.collectAsState()
-    var showCategoryDialog by remember { mutableStateOf(false) }
+    // Cloud initialization retry dialog
+    val showRetryInitDialog by viewModel.showRetryInitDialog.collectAsState()
+    val isInitializingCloud by viewModel.isInitializingCloud.collectAsState()
+
+    if (showRetryInitDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isInitializingCloud) viewModel.dismissRetryDialog() },
+            icon = {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Gagal Menyiapkan Database") },
+            text = {
+                Column {
+                    Text("Koneksi ke cloud diperlukan untuk membuat atau mengubah workspace. Periksa koneksi internet Anda.")
+                    if (isInitializingCloud) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                "Menyiapkan database cloud...",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.retrySpreadsheetInit() },
+                    enabled = !isInitializingCloud
+                ) {
+                    Text("Coba Lagi")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.dismissRetryDialog() },
+                    enabled = !isInitializingCloud
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
     var showBackupDetailDialog by remember { mutableStateOf(false) }
 
     if (showBackupDetailDialog) {
@@ -147,15 +198,6 @@ fun DashboardScreen(
         )
     }
 
-    if (showCategoryDialog) {
-        CategoryManagementDialog(
-            categories = ticketCategories,
-            onDismissRequest = { showCategoryDialog = false },
-            onAddCategory = { name, code -> viewModel.addCategory(name, code) },
-            onUpdateCategory = { id, newName -> viewModel.updateCategory(id, newName) },
-            onDeleteCategory = { id -> viewModel.deleteCategory(id) }
-        )
-    }
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -164,7 +206,7 @@ fun DashboardScreen(
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             title = { Text("Keluar dari Akun") },
-            text = { Text("Apakah Anda yakin ingin keluar? Data lokal akan tetap tersimpan di cloud.") },
+            text = { Text("Data Anda akan tetap tersimpan di cloud dan di perangkat ini.\nSaat login kembali, data akan langsung tersedia.") },
             confirmButton = {
                 Button(onClick = {
                     showLogoutDialog = false
@@ -197,7 +239,6 @@ fun DashboardScreen(
                     coroutineScope.launch { drawerState.close() }
                     activeEvent?.id?.let { onNavigateToEventProfile(it) } ?: run { showEventDialog = true }
                 },
-                onNavigateToCategory = { coroutineScope.launch { drawerState.close() }; showCategoryDialog = true },
                 onNavigateToGuide = { coroutineScope.launch { drawerState.close() }; onNavigateToGuide() },
                 onLogoutClick = { coroutineScope.launch { drawerState.close() }; showLogoutDialog = true }
             )
@@ -469,7 +510,6 @@ fun DashboardScreen(
                 Pair("Lihat Database", onNavigateToDatabase to Icons.Default.Storage),
                 Pair("Alat Generator", onNavigateToGenerator to Icons.Default.Build),
                 Pair("Desain Tiket", onNavigateToTicketEditor to Icons.Default.Brush),
-                Pair("Kelola Kategori", { showCategoryDialog = true } to Icons.Default.Category),
                 Pair("Detail Pencadangan", { showBackupDetailDialog = true } to Icons.Default.CloudSync)
             )
 
@@ -617,7 +657,6 @@ fun SidebarContent(
     onNavigateToDistribution: () -> Unit,
     onNavigateToBackup: () -> Unit,
     onNavigateToEventProfile: () -> Unit,
-    onNavigateToCategory: () -> Unit,
     onNavigateToGuide: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
@@ -636,6 +675,26 @@ fun SidebarContent(
                     .padding(24.dp)
             ) {
                 Column {
+                    val email = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.email else "User"
+                    val name = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.displayName else null
+                    val photoUrl = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.photoUrl else null
+
+                    var profileBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+                    LaunchedEffect(photoUrl) {
+                        if (photoUrl != null) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val url = java.net.URL(photoUrl)
+                                    val bitmap = android.graphics.BitmapFactory.decodeStream(url.openStream())
+                                    profileBitmap = bitmap
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .size(64.dp)
@@ -643,12 +702,18 @@ fun SidebarContent(
                             .background(PrimaryColor.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(32.dp))
+                        if (profileBitmap != null) {
+                            Image(
+                                bitmap = profileBitmap!!.asImageBitmap(),
+                                contentDescription = "Profile Photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(32.dp))
+                        }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    
-                    val email = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.email else "User"
-                    val name = if (authState is com.tkrz.qrtix.viewmodel.AuthState.Authenticated) authState.displayName else null
                     
                     if (name != null) {
                         Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextDark)
@@ -712,12 +777,6 @@ fun SidebarContent(
                     label = { Text("Profil Event") },
                     selected = false,
                     onClick = onNavigateToEventProfile
-                )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Category, contentDescription = null) },
-                    label = { Text("Kelola Kategori") },
-                    selected = false,
-                    onClick = onNavigateToCategory
                 )
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Default.Help, contentDescription = null) },

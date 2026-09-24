@@ -110,12 +110,12 @@ class MainActivity : ComponentActivity() {
                             LoginScreen(
                                 viewModel = authViewModel,
                                 onNavigateToMainMenu = {
-                                    navController.navigate("mainmenu") {
+                                    navController.navigate("splash") {
                                         popUpTo("login") { inclusive = true }
                                     }
                                 },
                                 onNavigateToOnboarding = {
-                                    navController.navigate("onboarding") {
+                                    navController.navigate("splash") {
                                         popUpTo("login") { inclusive = true }
                                     }
                                 }
@@ -157,9 +157,11 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onLogout = {
                                     authViewModel.signOut()
-                                    navController.navigate("login") {
-                                        popUpTo(0) { inclusive = true }
+                                    val intent = android.content.Intent(this@MainActivity, MainActivity::class.java).apply {
+                                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
                                     }
+                                    startActivity(intent)
+                                    finish()
                                 }
                             )
                         }

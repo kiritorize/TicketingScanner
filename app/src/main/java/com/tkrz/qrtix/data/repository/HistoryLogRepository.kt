@@ -7,15 +7,17 @@ import com.tkrz.qrtix.data.HistoryLog
 import com.tkrz.qrtix.data.HistoryLogDao
 import com.tkrz.qrtix.data.cloud.CloudPreferences
 import com.tkrz.qrtix.data.cloud.GoogleSheetsService
+import com.tkrz.qrtix.data.DatabaseProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class HistoryLogRepository @Inject constructor(
-    private val historyLogDao: HistoryLogDao,
+    private val databaseProvider: DatabaseProvider,
     private val sheetsService: GoogleSheetsService,
     private val cloudPreferences: CloudPreferences
 ) {
+    private val historyLogDao get() = databaseProvider.historyLogDao
     suspend fun getLogsForEvent(eventId: Long): List<HistoryLog> = historyLogDao.getLogsForEvent(eventId)
 
     suspend fun syncLogsFromCloud() = withContext(Dispatchers.IO) {
@@ -33,7 +35,7 @@ class HistoryLogRepository @Inject constructor(
                     val description = row.getOrNull(3)?.toString() ?: ""
                     val details = row.getOrNull(4)?.toString() ?: ""
                     val timestamp = row.getOrNull(5)?.toString()?.toLongOrNull() ?: System.currentTimeMillis()
-                    val isUndone = row.getOrNull(6)?.toString()?.toBooleanStrictOrNull() ?: false
+                    val isUndone = row.getOrNull(6)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
                     
                     logs.add(HistoryLog(id, eventId, action, description, details, timestamp, isUndone))
                 } catch (e: Exception) {

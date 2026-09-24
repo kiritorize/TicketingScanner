@@ -7,6 +7,7 @@ import com.tkrz.qrtix.data.Ticket
 import com.tkrz.qrtix.data.TicketDao
 import com.tkrz.qrtix.data.cloud.CloudPreferences
 import com.tkrz.qrtix.data.cloud.GoogleSheetsService
+import com.tkrz.qrtix.data.DatabaseProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -28,10 +29,11 @@ sealed class OnlineScanResult {
 }
 
 class TicketRepository @Inject constructor(
-    private val ticketDao: TicketDao,
+    private val databaseProvider: DatabaseProvider,
     private val sheetsService: GoogleSheetsService,
     private val cloudPreferences: CloudPreferences
 ) {
+    private val ticketDao get() = databaseProvider.ticketDao
     companion object {
         private const val ONLINE_SCAN_TIMEOUT_MS = 5000L
     }
@@ -89,11 +91,11 @@ class TicketRepository @Inject constructor(
                                 matchedRowIndex = i + 2 // +2 because data starts at row 2 (1-based), and i is 0-based
                                 val id = row.getOrNull(0)?.toString()?.toIntOrNull() ?: 0
                                 val ticketType = row.getOrNull(2)?.toString() ?: ""
-                                val isScanned = row.getOrNull(3)?.toString()?.toBooleanStrictOrNull() ?: false
+                                val isScanned = row.getOrNull(3)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
                                 val createdAt = row.getOrNull(4)?.toString()?.toLongOrNull() ?: System.currentTimeMillis()
                                 val scannedAtStr = row.getOrNull(5)?.toString()
                                 val scannedAt = if (scannedAtStr.isNullOrBlank() || scannedAtStr == "null") null else scannedAtStr.toLongOrNull()
-                                val isModified = row.getOrNull(6)?.toString()?.toBooleanStrictOrNull() ?: false
+                                val isModified = row.getOrNull(6)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
 
                                 matchedTicket = Ticket(id, rowQr, ticketType, isScanned, createdAt, scannedAt, isModified, rowEventId)
                                 break
@@ -128,7 +130,10 @@ class TicketRepository @Inject constructor(
                 )
                 sheetsService.updateRow(spreadsheetId, "Tickets!A$matchedRowIndex:H$matchedRowIndex", updatedRowData)
 
-                // Race condition check: immediately re-read the scannedAt value
+                // Let concurrent writes settle before verification read
+                delay(100)
+
+                // Race condition check: re-read the scannedAt value after delay
                 val verifyData = sheetsService.readRange(spreadsheetId, "Tickets!F$matchedRowIndex:F$matchedRowIndex")
                 val readScannedAtStr = verifyData?.firstOrNull()?.firstOrNull()?.toString()
                 val readScannedAt = if (readScannedAtStr.isNullOrBlank() || readScannedAtStr == "null") null else readScannedAtStr.toLongOrNull()
@@ -156,38 +161,69 @@ class TicketRepository @Inject constructor(
         }
     }
 
+    /**
+     * Syncs tickets from Google Sheets with a smart merge strategy.
+     *
+     * Instead of destructive delete-all-then-insert, this compares cloud data
+     * with local data and keeps the freshest scan state for each ticket:
+     * - Local scanned + cloud not scanned → keep local (scan hasn't propagated yet)
+     * - Cloud scanned + local not scanned → keep cloud (scanned from another device)
+     * - Both scanned → keep the one with the earlier timestamp (first-scan-wins)
+     * - Default → trust cloud
+     */
     suspend fun syncTicketsFromCloud(eventId: Long) = withContext(Dispatchers.IO) {
         val spreadsheetId = cloudPreferences.spreadsheetId ?: throw Exception("Cloud database belum siap")
         val data = sheetsService.readRange(spreadsheetId, "Tickets!A2:H")
-        
-        val tickets = mutableListOf<Ticket>()
+
+        // Parse cloud tickets for this event
+        val cloudTickets = mutableListOf<Ticket>()
         if (data != null) {
             for (row in data) {
                 if (row.isEmpty()) continue
                 try {
                     val id = row.getOrNull(0)?.toString()?.toIntOrNull() ?: continue
                     val rowEventId = row.getOrNull(7)?.toString()?.toLongOrNull() ?: continue
-                    
+
                     if (rowEventId == eventId) {
                         val qrContent = row.getOrNull(1)?.toString() ?: ""
                         val ticketType = row.getOrNull(2)?.toString() ?: ""
-                        val isScanned = row.getOrNull(3)?.toString()?.toBooleanStrictOrNull() ?: false
+                        val isScanned = row.getOrNull(3)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
                         val createdAt = row.getOrNull(4)?.toString()?.toLongOrNull() ?: System.currentTimeMillis()
                         val scannedAtStr = row.getOrNull(5)?.toString()
                         val scannedAt = if (scannedAtStr.isNullOrBlank() || scannedAtStr == "null") null else scannedAtStr.toLongOrNull()
-                        val isModified = row.getOrNull(6)?.toString()?.toBooleanStrictOrNull() ?: false
-                        
-                        tickets.add(Ticket(id, qrContent, ticketType, isScanned, createdAt, scannedAt, isModified, rowEventId))
+                        val isModified = row.getOrNull(6)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
+
+                        cloudTickets.add(Ticket(id, qrContent, ticketType, isScanned, createdAt, scannedAt, isModified, rowEventId))
                     }
                 } catch (e: Exception) {
                     // Skip malformed row
                 }
             }
         }
-        
+
+        // Smart merge: compare cloud vs local, keep the freshest scan data
+        val localTickets = ticketDao.getAllTickets(eventId)
+        val localMap = localTickets.associateBy { it.qrContent.trim().uppercase() }
+
+        val mergedTickets = cloudTickets.map { cloudTicket ->
+            val localTicket = localMap[cloudTicket.qrContent.trim().uppercase()]
+            when {
+                // Local scanned, cloud not — local is fresher (scan hasn't propagated yet)
+                localTicket != null && localTicket.isScanned && !cloudTicket.isScanned -> localTicket
+                // Cloud scanned, local not — cloud is fresher (scanned from another device)
+                cloudTicket.isScanned && (localTicket == null || !localTicket.isScanned) -> cloudTicket
+                // Both scanned — keep whichever was scanned first (first-scan-wins)
+                localTicket != null && cloudTicket.scannedAt != null && localTicket.scannedAt != null ->
+                    if (localTicket.scannedAt!! <= cloudTicket.scannedAt!!) localTicket else cloudTicket
+                // Default: trust cloud
+                else -> cloudTicket
+            }
+        }
+
+        // Replace local DB with merged result
         ticketDao.deleteAllTickets(eventId)
-        if (tickets.isNotEmpty()) {
-            ticketDao.insertTickets(tickets)
+        if (mergedTickets.isNotEmpty()) {
+            ticketDao.insertTickets(mergedTickets)
         }
     }
 

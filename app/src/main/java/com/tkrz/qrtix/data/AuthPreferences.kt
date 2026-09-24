@@ -23,10 +23,18 @@ class AuthPreferences @Inject constructor(
     val userEmail: String?
         get() = prefs.getString("USER_EMAIL", null)
 
-    fun setSignedIn(signedIn: Boolean, email: String? = null) {
+    val userName: String?
+        get() = prefs.getString("USER_NAME", null)
+
+    val userPhotoUrl: String?
+        get() = prefs.getString("USER_PHOTO_URL", null)
+
+    fun setSignedIn(signedIn: Boolean, email: String? = null, displayName: String? = null, photoUrl: String? = null) {
         prefs.edit()
             .putBoolean("IS_SIGNED_IN", signedIn)
             .putString("USER_EMAIL", email)
+            .putString("USER_NAME", displayName)
+            .putString("USER_PHOTO_URL", photoUrl)
             .apply()
         _isSignedIn.value = signedIn
     }

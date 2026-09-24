@@ -42,10 +42,12 @@ fun DistributionScreen(
 ) {
     var currentStep by remember { mutableStateOf(1) }
     val ticketCategories by viewModel.ticketCategories.collectAsState()
-    
+    val activeEvent by viewModel.activeEvent.collectAsState()
+    val eventName = activeEvent?.name ?: "Event"
+
     // Step 1 State
     var sheetUrl by remember { mutableStateOf("") }
-    var sheetId by remember { mutableStateOf("") }
+    var sheetId by remember { mutableStateOf("") }  // External sheet ID — used for READ-ONLY access
     var isLoadingStep1 by remember { mutableStateOf(false) }
     var step1Error by remember { mutableStateOf<String?>(null) }
     var headers by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -53,11 +55,10 @@ fun DistributionScreen(
 
     LaunchedEffect(Unit) {
         if (viewModel.isNavigatingToStatus) {
-            val savedSheetId = viewModel.activeEvent.value?.distributionSheetId
+            val savedSheetId = activeEvent?.distributionSheetId
             if (savedSheetId != null) {
-                sheetId = savedSheetId
                 currentStep = 5
-                distViewModel.loadStatus(savedSheetId)
+                distViewModel.loadStatus(eventName)
                 // reset flag
                 viewModel.isNavigatingToStatus = false
             }
@@ -121,6 +122,15 @@ fun DistributionScreen(
                             isLoadingStep1 = true
                             step1Error = null
                             coroutineScope.launch {
+                                // Validate read access to the external sheet first
+                                val hasAccess = distViewModel.validateExternalSheetAccess(sheetId)
+                                if (!hasAccess) {
+                                    isLoadingStep1 = false
+                                    val errorMsg = distViewModel.errorMessage.value
+                                    step1Error = errorMsg ?: "Gagal mengakses spreadsheet. Pastikan sheet dapat diakses."
+                                    return@launch
+                                }
+
                                 val data = viewModel.readExternalSheetData(sheetId, "A1:Z6")
                                 isLoadingStep1 = false
                                 if (data != null && data.isNotEmpty()) {
@@ -149,11 +159,8 @@ fun DistributionScreen(
                     onToggleManualMode = { isManualMappingMode = it },
                     onNext = {
                         if (columnMapping.isAllMatched) {
-                            // Prepare for step 3: Extract unique categories from the sample 
-                            // (In a real app, you might want to fetch all categories from the sheet, 
-                            // but for this task, reading A1:Z1000 might be needed. We'll simulate with sample for now)
                             coroutineScope.launch {
-                                // Re-fetch a larger chunk to get all unique categories if needed
+                                // Re-fetch a larger chunk from the EXTERNAL sheet to get all unique categories
                                 val fullData = viewModel.readExternalSheetData(sheetId, "A2:Z1000")
                                 val stringFullData = fullData?.map { row -> row.map { it.toString() } } ?: dataSample
                                 
@@ -195,6 +202,7 @@ fun DistributionScreen(
                         val allMapped = manualCategorySelections.values.all { it != null }
                         if (allMapped) {
                             coroutineScope.launch {
+                                // Fetch full data from the EXTERNAL sheet (read-only)
                                 val fullData = viewModel.readExternalSheetData(sheetId, "A2:Z1000")
                                 val stringFullData = fullData?.map { row -> row.map { it.toString() } } ?: emptyList()
                                 
@@ -213,10 +221,11 @@ fun DistributionScreen(
                                     com.tkrz.qrtix.data.BuyerData(name, email, dbCatCode, qty)
                                 }
                                 
+                                // Process using eventName (not external sheetId)
                                 distViewModel.processDistributionData(
                                     buyers, 
-                                    viewModel.activeEvent.value?.id ?: 1L, 
-                                    sheetId
+                                    activeEvent?.id ?: 1L, 
+                                    eventName
                                 )
                                 currentStep = 4
                             }
@@ -236,7 +245,7 @@ fun DistributionScreen(
                     
                     LaunchedEffect(saveSuccess) {
                         if (saveSuccess) {
-                            currentStep = 5 // Go to email sending step (Task 9.3)
+                            currentStep = 5 // Go to email sending step
                         }
                     }
 
@@ -252,10 +261,10 @@ fun DistributionScreen(
                         errorMessage = errorMessage,
                         onBack = { currentStep = 3 },
                         onConfirm = {
+                            // Save to internal QRTix_Data spreadsheet (not external sheet)
                             distViewModel.saveDistributionMapping(
-                                spreadsheetId = sheetId,
-                                eventId = viewModel.activeEvent.value?.id ?: 1L,
-                                eventName = viewModel.activeEvent.value?.name ?: "Event"
+                                eventId = activeEvent?.id ?: 1L,
+                                eventName = eventName
                             )
                         }
                     )
@@ -272,29 +281,19 @@ fun DistributionScreen(
                         isPaused = isPaused,
                         logs = sendLogs,
                         onStart = {
-                            distViewModel.startSending(
-                                spreadsheetId = sheetId,
-                                eventName = viewModel.activeEvent.value?.name ?: "Event"
-                            )
+                            distViewModel.startSending(eventName = eventName)
                         },
                         onPause = { distViewModel.pauseSending() },
                         onResume = {
-                            distViewModel.resumeSending(
-                                spreadsheetId = sheetId,
-                                eventName = viewModel.activeEvent.value?.name ?: "Event"
-                            )
+                            distViewModel.resumeSending(eventName = eventName)
                         },
                         onRetryFailed = {
-                            distViewModel.retryFailed(
-                                spreadsheetId = sheetId,
-                                eventName = viewModel.activeEvent.value?.name ?: "Event"
-                            )
+                            distViewModel.retryFailed(eventName = eventName)
                         },
                         onExport = {
                             distViewModel.exportReport(
                                 context = context,
-                                spreadsheetId = sheetId,
-                                eventName = viewModel.activeEvent.value?.name ?: "Event"
+                                eventName = eventName
                             )
                         }
                     )

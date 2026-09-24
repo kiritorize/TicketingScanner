@@ -92,4 +92,37 @@ class MediaManager @Inject constructor(
             return@withContext null
         }
     }
+
+    /**
+     * Deletes a media file from Google Drive and removes it from the local cache.
+     * Safely handles invalid IDs and ignores exceptions to avoid breaking caller flows.
+     */
+    suspend fun deleteMedia(fileIdOrPath: String?) = withContext(Dispatchers.IO) {
+        if (fileIdOrPath.isNullOrBlank() || fileIdOrPath.startsWith("/")) return@withContext
+        try {
+            driveService.deleteFile(fileIdOrPath)
+            
+            val cacheDir = File(context.cacheDir, "QRTix_Media_Cache")
+            val cachedFile = File(cacheDir, "$fileIdOrPath.jpg")
+            if (cachedFile.exists()) {
+                cachedFile.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Clears all cached media files from the local storage.
+     */
+    fun clearCache() {
+        try {
+            val cacheDir = File(context.cacheDir, "QRTix_Media_Cache")
+            if (cacheDir.exists()) {
+                cacheDir.deleteRecursively()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 }

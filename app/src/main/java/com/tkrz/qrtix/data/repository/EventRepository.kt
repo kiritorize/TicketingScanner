@@ -12,17 +12,21 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import com.tkrz.qrtix.data.DatabaseProvider
 import javax.inject.Inject
 import android.util.Log
 
+class CloudNotReadyException(message: String = "Cloud database belum siap") : Exception(message)
+
 class EventRepository @Inject constructor(
-    private val eventDao: EventDao,
+    private val databaseProvider: DatabaseProvider,
     private val sheetsService: GoogleSheetsService,
     private val cloudPreferences: CloudPreferences,
     private val eventPreferences: EventPreferences,
-    private val eventBackupManager: EventBackupManager,
-    private val categoryDao: CategoryDao
+    private val eventBackupManager: EventBackupManager
 ) {
+    private val eventDao get() = databaseProvider.eventDao
+    private val categoryDao get() = databaseProvider.categoryDao
     fun getAllEvents(): Flow<List<Event>> = eventDao.getAllEvents()
 
     suspend fun getEventById(id: Long): Event? = eventDao.getEventById(id)
@@ -189,9 +193,12 @@ class EventRepository @Inject constructor(
 
     suspend fun checkEventCodeExistsInCloud(eventCode: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val spreadsheetId = cloudPreferences.spreadsheetId ?: return@withContext false
+            val spreadsheetId = cloudPreferences.spreadsheetId
+                ?: throw CloudNotReadyException()
             val data = sheetsService.readRange(spreadsheetId, "Events!F2:F")
             data?.any { it.firstOrNull()?.toString().equals(eventCode, ignoreCase = true) } == true
+        } catch (e: CloudNotReadyException) {
+            throw e // Re-throw so callers can distinguish cloud-not-ready from network errors
         } catch (e: Exception) {
             false
         }
@@ -199,9 +206,12 @@ class EventRepository @Inject constructor(
 
     suspend fun checkEventNameExistsInCloud(eventName: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val spreadsheetId = cloudPreferences.spreadsheetId ?: return@withContext false
+            val spreadsheetId = cloudPreferences.spreadsheetId
+                ?: throw CloudNotReadyException()
             val data = sheetsService.readRange(spreadsheetId, "Events!B2:B")
             data?.any { it.firstOrNull()?.toString().equals(eventName, ignoreCase = true) } == true
+        } catch (e: CloudNotReadyException) {
+            throw e
         } catch (e: Exception) {
             false
         }

@@ -14,8 +14,11 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.tkrz.qrtix.R
 import com.tkrz.qrtix.data.AuthPreferences
 import com.tkrz.qrtix.data.cloud.CloudPreferences
+import com.tkrz.qrtix.data.cloud.DriveFolderManager
 import com.tkrz.qrtix.data.cloud.SpreadsheetManager
 import com.tkrz.qrtix.data.repository.EventRepository
+import com.tkrz.qrtix.data.DatabaseProvider
+import com.tkrz.qrtix.data.cloud.MediaManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +29,7 @@ import javax.inject.Inject
 sealed class AuthState {
     object Idle : AuthState()
     object Loading : AuthState()
-    data class Authenticated(val email: String, val displayName: String?) : AuthState()
+    data class Authenticated(val email: String, val displayName: String?, val photoUrl: String?) : AuthState()
     data class Error(val message: String) : AuthState()
     data class NeedsConsent(val intent: android.content.Intent) : AuthState()
 }
@@ -37,7 +40,10 @@ class AuthViewModel @Inject constructor(
     private val spreadsheetManager: SpreadsheetManager,
     private val eventRepository: EventRepository,
     private val historyLogRepository: com.tkrz.qrtix.data.repository.HistoryLogRepository,
-    private val cloudPreferences: CloudPreferences
+    private val cloudPreferences: CloudPreferences,
+    private val driveFolderManager: DriveFolderManager,
+    private val mediaManager: MediaManager,
+    private val databaseProvider: DatabaseProvider
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -52,7 +58,10 @@ class AuthViewModel @Inject constructor(
 
     fun checkAuthStatus() {
         if (authPreferences.isSignedIn.value) {
-            _authState.value = AuthState.Authenticated("User", null)
+            val email = authPreferences.userEmail ?: "User"
+            val name = authPreferences.userName
+            val photoUrl = authPreferences.userPhotoUrl
+            _authState.value = AuthState.Authenticated(email, name, photoUrl)
         } else {
             _authState.value = AuthState.Idle
         }
@@ -110,9 +119,11 @@ class AuthViewModel @Inject constructor(
                 }
 
                 val displayName = googleIdTokenCredential.displayName
+                val photoUrl = googleIdTokenCredential.profilePictureUri?.toString()
                 
-                authPreferences.setSignedIn(true, email)
-                _authState.value = AuthState.Authenticated(email, displayName)
+                authPreferences.setSignedIn(true, email, displayName, photoUrl)
+                cloudPreferences.activeEmail = email
+                _authState.value = AuthState.Authenticated(email, displayName, photoUrl)
             } catch (e: Exception) {
                 Log.e("AuthViewModel", "Failed to decode JWT or complete sign in", e)
                 _authState.value = AuthState.Error("Terjadi kesalahan saat memproses login.")
@@ -126,20 +137,29 @@ class AuthViewModel @Inject constructor(
     fun signOut() {
         authPreferences.setSignedIn(false, null)
         authPreferences.setHasSeenOnboarding(false) // Reset onboarding
-        cloudPreferences.clear()
+        cloudPreferences.clearSession()
+        driveFolderManager.clearCache()
+        mediaManager.clearCache()
+        databaseProvider.closeDatabase()
         _authState.value = AuthState.Idle
     }
 
     fun retryInitialization() {
         viewModelScope.launch {
             _authState.value = AuthState.Loading
-            val initResult = spreadsheetManager.initializeSpreadsheet()
+            val email = authPreferences.userEmail
+            if (email != null) {
+                cloudPreferences.activeEmail = email
+            }
+            val initResult = spreadsheetManager.initializeSpreadsheet(email)
             if (initResult.isSuccess) {
                 try {
                     eventRepository.syncEventsFromCloud()
                     historyLogRepository.syncLogsFromCloud()
                     val email = authPreferences.userEmail ?: "User"
-                    _authState.value = AuthState.Authenticated(email, null)
+                    val name = authPreferences.userName
+                    val photoUrl = authPreferences.userPhotoUrl
+                    _authState.value = AuthState.Authenticated(email, name, photoUrl)
                 } catch (e: Exception) {
                     Log.e("AuthViewModel", "Sync failed on retry", e)
                     _authState.value = AuthState.Error("Gagal sinkronisasi data: ${e.message}")

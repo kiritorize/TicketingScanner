@@ -4,7 +4,7 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.tkrz.qrtix.data.Event
-import com.tkrz.qrtix.data.TicketDao
+import com.tkrz.qrtix.data.DatabaseProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,9 +17,10 @@ class EventBackupManager @Inject constructor(
     private val driveService: GoogleDriveService,
     private val driveFolderManager: DriveFolderManager,
     private val cloudPreferences: CloudPreferences,
-    private val ticketDao: TicketDao,
+    private val databaseProvider: DatabaseProvider,
     @ApplicationContext private val context: Context
 ) {
+    private val ticketDao get() = databaseProvider.ticketDao
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
     suspend fun backupEventToCloud(event: Event, categories: List<String>) = withContext(Dispatchers.IO) {

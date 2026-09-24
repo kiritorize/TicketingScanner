@@ -145,4 +145,14 @@ class GoogleDriveService @Inject constructor(
             false
         }
     }
+
+    suspend fun deleteFile(fileId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            driveService.files().delete(fileId).execute()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
 }

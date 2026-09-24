@@ -85,33 +85,35 @@ Root package: `app/src/main/java/com/tkrz/qrtix/`
 
 | File | Contents | Responsibility |
 |------|----------|----------------|
-| `AppDatabase.kt` | Class `AppDatabase` | Room Database (version 10). Declares entities: Ticket, Event, HistoryLog. Provides DAOs: ticketDao(), eventDao(), historyLogDao(). Contains migrations v5→v6 through v9→v10. Uses Singleton pattern. |
+| `AppDatabase.kt` | Class `AppDatabase` | Room Database (version 13). Declares entities: Ticket, Event, HistoryLog, TicketCategory. Provides DAOs: ticketDao(), eventDao(), historyLogDao(), categoryDao(). Exposes ALL_MIGRATIONS array and buildDatabaseName(email) helper for account-scoped databases. |
+| `DatabaseProvider.kt` | Class `DatabaseProvider` | Manages per-account Room database lifecycle (`qrtix_<hash>`), automatically migrates legacy `ticketing_database` on first upgrade, provides thread-safe access and closes databases on logout, and routes DAO calls dynamically. |
 | `TicketDao.kt` | Entity `Ticket`, Interface `TicketDao` | **Ticket entity** — fields: id(PK auto), qrContent, ticketType, isScanned, createdAt, scannedAt(nullable), isModified, eventId. Unique index on (qrContent, eventId). **TicketDao** — functions: getAllTickets(eventId), getTicketByQr(qrContent, eventId), getTicketCount(eventId), insertTickets(list), markAsScanned(qrContent, eventId, scannedAt), deleteAllTickets(eventId), resetSequence(), deleteTickets(ids), updateTicket(id, newQr, newType, updatedAt), getExistingCodes(codes, eventId). |
 | `Event.kt` | Entity `Event` | Fields: id(PK auto), name, createdAt, lastAccessedAt. Represents one workspace/event. |
 | `EventDao.kt` | Interface `EventDao` | Functions: getAllEvents() → Flow<List<Event>>, getEventById(id), insertEvent(event) → Long, updateEvent(event), deleteEvent(id). |
-| `EventPreferences.kt` | Class `EventPreferences` | Stores the active event ID in SharedPreferences ("EventPrefs", key "ACTIVE_EVENT_ID"). Exposes StateFlow<Long> for reactive observation. Default value: 1L. |
+| `EventPreferences.kt` | Class `EventPreferences` | Stores the active event ID in SharedPreferences per-account ("EventPrefs", key "ACTIVE_EVENT_ID_{email}"). Exposes StateFlow<Long> for reactive observation. Default value: 1L. Migrates un-keyed legacy preference. |
 | `HistoryLog.kt` | Entity `HistoryLog`, Interface `HistoryLogDao` | **HistoryLog entity** — fields: id(PK auto), eventId, action, description, details(default ""), timestamp, isUndone(default false). **HistoryLogDao** — functions: getLogsForEvent(eventId), insertLog(log) → Long, markAsUndone(logId), deleteLogsForEvent(eventId). |
 
 ### 4.3 Dependency Injection (`di/`)
 
 | File | Contents | Responsibility |
 |------|----------|----------------|
-| `AppModule.kt` | Object `AppModule` | Hilt Module (@InstallIn SingletonComponent). Provides: AppDatabase, TicketDao, EventDao, HistoryLogDao, EventPreferences, TicketRepository, EventRepository, HistoryLogRepository. All @Singleton. |
+| `AppModule.kt` | Object `AppModule` | Hilt Module (@InstallIn SingletonComponent). Provides: DatabaseProvider, AppDatabase, DAOs (delegating to DatabaseProvider), EventPreferences, Repositories, and Managers. All @Singleton. |
 
 ### 4.4 Repository Layer (`data/repository/`)
 
 | File | Contents | Responsibility |
 |------|----------|----------------|
-| `TicketRepository.kt` | Class `TicketRepository`, Sealed class `OnlineScanResult` | Acts as a single source of truth for Ticket data operations. Wraps `TicketDao` and `GoogleSheetsService`. Provides `validateAndScanOnline()` for real-time cloud ticket validation. `OnlineScanResult` variants: Success, AlreadyScanned, NotFound, NetworkError. |
+| `TicketRepository.kt` | Class `TicketRepository`, Sealed class `OnlineScanResult` | Acts as a single source of truth for Ticket data operations. Wraps `TicketDao` and `GoogleSheetsService`. Provides `validateAndScanOnline()` for real-time cloud ticket validation with race-condition prevention delay, case-insensitive boolean parsing for Sheets data, and `syncTicketsFromCloud()` with smart merge strategy preserving fresher local scan states. `OnlineScanResult` variants: Success, AlreadyScanned, NotFound, NetworkError. |
 | `EventRepository.kt` | Class `EventRepository` | Acts as a single source of truth for Event data operations. Wraps `EventDao`. |
 | `HistoryLogRepository.kt` | Class `HistoryLogRepository` | Acts as a single source of truth for HistoryLog data operations. Wraps `HistoryLogDao`. |
-| `DistributionRepository.kt` | Class `DistributionRepository` | Handles complex distribution validation (data, quantity, matching rules) and deterministic ticket assignment. Manages saving mapping to Google Sheets. |
+| `DistributionRepository.kt` | Class `DistributionRepository` | Handles distribution validation (read-only validation for external response sheets, quantity/matching rules) and deterministic ticket assignment. Manages saving distribution mappings and status updates to internal QRTix spreadsheet tabs ("Distribusi_[EventName]"). |
 
 ### 4.5 ViewModel Layer (`viewmodel/`)
 
 | File | Contents | Responsibility |
 |------|----------|----------------|
 | `AuthViewModel.kt` | Sealed class `AuthState`, Class `AuthViewModel` | Manages Google Sign-In state using Credential Manager. |
+| `SplashViewModel.kt` | Class `SplashViewModel` | Orchestrates network check, auth check, account-aware cloud synchronization (events, logs, categories, tickets, media download), and resilient retry upon stale spreadsheet 404 detection. |
 | `TicketViewModel.kt` | Sealed class `ScanStatus`, Class `TicketViewModel` | All business logic for the app. Details below. |
 | `DistributionViewModel.kt` | Class `DistributionViewModel` | Exposes distribution validation results, loading state, and error handling for the distribution UI flow. |
 
@@ -209,8 +211,8 @@ Private functions:
 | `GoogleCredentialManager.kt` | `GoogleCredentialManager` | Configures and provides `GoogleAccountCredential` with necessary OAuth scopes for API requests. |
 | `GoogleSheetsService.kt` | `GoogleSheetsService` | Wraps the Google Sheets API v4. Provides methods to create spreadsheets, read ranges, append rows, and batch update. Includes exponential backoff for rate limits. |
 | `GoogleDriveService.kt` | `GoogleDriveService` | Wraps the Google Drive API v3. Provides methods to upload, download, and search files. |
-| `CloudPreferences.kt` | `CloudPreferences` | Stores cloud-related IDs (Google Drive folder ID, Spreadsheet ID) in SharedPreferences. |
-| `SpreadsheetManager.kt` | `SpreadsheetManager` | Handles the initialization of the Google Spreadsheet database (`QRTix_Data`) in Google Drive and creates the necessary schemas and headers. |
+| `CloudPreferences.kt` | `CloudPreferences` | Stores cloud-related IDs (folder IDs, spreadsheet ID) in SharedPreferences **keyed by account email**. Uses `activeEmail` to route all reads/writes to per-account keys (e.g., `SPREADSHEET_ID_user@gmail.com`). Provides explicit per-email helpers `getSpreadsheetId(email)` and `setSpreadsheetId(email, id)`. Provides `clearSession()` for sign-out (preserves per-email data) and `clearAllData()` for full reset. Includes migration helpers for detecting and cleaning pre-upgrade un-keyed values. |
+| `SpreadsheetManager.kt` | `SpreadsheetManager` | Handles the initialization of the Google Spreadsheet database (`QRTix_Data`) in Google Drive under a **per-account folder structure** (`QRTix/{email}/System/`). Supports optional `accountEmail` parameter, sets `activeEmail` on init, verifies spreadsheet accessibility, handles stale 404 recovery, and creates account-scoped `System/` and `Profiles/` folders. |
 
 ---
 
@@ -223,14 +225,16 @@ Start destination: `"splash"`
 ```
 Route           → Screen               → Can navigate to
 ─────────────────────────────────────────────────────────────
-"splash"        → SplashScreen          → "mainmenu" or "login" (auto, popUpTo splash)
-"login"         → LoginScreen           → "mainmenu" (on successful auth)
-"mainmenu"      → MainMenuScreen        → "scanner", "management", "database", "generator", "ticket_editor"
+"splash"        → SplashScreen          → "mainmenu", "onboarding", or "login" (auto, popUpTo splash)
+"login"         → LoginScreen           → "splash" (on successful auth, triggers account-aware sync before mainmenu/onboarding)
+"onboarding"    → OnboardingOverlay     → "mainmenu" (on complete, popUpTo onboarding)
+"mainmenu"      → DashboardScreen       → "scanner", "management", "database", "generator", "ticket_editor", "distribution"
 "scanner"       → ScannerScreen         → "management" (via button), back
 "management"    → ManagementScreen      → "database", "generator", back
 "database"      → DatabaseScreen        → back
 "generator"     → GeneratorScreen       → back
 "ticket_editor" → TicketEditorScreen    → back
+"distribution"  → DistributionScreen    → back
 ```
 
 All screens receive an `onNavigateBack` callback that calls `navController.popBackStack()` with a safety check for null previousBackStackEntry.
@@ -239,7 +243,7 @@ All screens receive an `onNavigateBack` callback that calls `navController.popBa
 
 ## 6. DATABASE SCHEMA
 
-Database name: `ticketing_database`
+Database name: Dynamic per-account (`qrtix_<hash>`) managed by `DatabaseProvider` (legacy fallback: `ticketing_database`)
 Current version: 13
 
 ### Table: categories
@@ -407,6 +411,19 @@ File: `app/src/main/AndroidManifest.xml`
 Format: `[YYYY-MM-DD] — Description of changes — (files changed/added/deleted)`
 
 ```
+[2026-09-25] — Phase 13B (Task 13.14): Fix Cloud Sync After Re-Login — Account-Aware Sync Flow: Implemented account-aware cloud sync in SplashViewModel with resilient 404 recovery for stale spreadsheet IDs. Added explicit email-keyed spreadsheet helpers in CloudPreferences (getSpreadsheetId/setSpreadsheetId) and enabled explicit account targeting in SpreadsheetManager.initializeSpreadsheet(email). Connected AuthViewModel to set activeEmail on sign-in and routed LoginScreen completion through SplashScreen to ensure newly signed-in or re-logged accounts always perform cloud sync before reaching Onboarding or Main Menu. — (data/cloud/CloudPreferences.kt, data/cloud/SpreadsheetManager.kt, viewmodel/SplashViewModel.kt, viewmodel/AuthViewModel.kt, MainActivity.kt)
+[2026-09-25] — Phase 13B (Task 13.13): Per-Account Local Database & Logout Flow: Created DatabaseProvider to dynamically manage per-account Room SQLite databases ("qrtix_<hash>") with automatic migration of legacy "ticketing_database" files without data loss. Refactored TicketRepository, EventRepository, HistoryLogRepository, CategoryRepository, and EventBackupManager to inject DatabaseProvider and access DAOs dynamically. Keyed EventPreferences by active account email ("ACTIVE_EVENT_ID_<email>"). Added clearCache to MediaManager. Updated AuthViewModel.signOut() to clear temporary media cache and close database connections while retaining per-account cloud preferences. Updated logout confirmation dialog text and refreshed MainActivity onLogout to cleanly restart the activity and reset all ViewModel states. — (data/AppDatabase.kt, data/DatabaseProvider.kt [NEW], data/EventPreferences.kt, data/cloud/MediaManager.kt, data/repository/TicketRepository.kt, data/repository/EventRepository.kt, data/repository/HistoryLogRepository.kt, data/repository/CategoryRepository.kt, data/cloud/EventBackupManager.kt, di/AppModule.kt, viewmodel/AuthViewModel.kt, ui/DashboardScreen.kt, MainActivity.kt)
+[2026-09-24] — Phase 13B (Task 13.12): Restructure Google Drive — Per-Account Directory Layout: Rewrote CloudPreferences with per-email keyed storage using activeEmail routing. All folder/spreadsheet IDs stored under "{KEY}_{email}" patterns. Replaced clear() with clearSession() and clearAllData(). Rewrote SpreadsheetManager to create account-scoped QRTix/{email}/System/ and QRTix/{email}/Profiles/ folder structure with automatic one-time migration of old flat structure. Removed unsafe fallback folder creation in BackgroundUploadManager. Replaced cloudPreferences.clear() with clearSession() + driveFolderManager.clearCache() in AuthViewModel. Updated AppModule DI. — (data/cloud/CloudPreferences.kt, data/cloud/SpreadsheetManager.kt, data/cloud/BackgroundUploadManager.kt, viewmodel/AuthViewModel.kt, di/AppModule.kt)
+[2026-09-24] — Phase 13A (Task 13.11): Fix Distribution Error — Create Own Spreadsheet for Distribution Data: Separated read-only external Forms response sheet access from read-write internal storage. Injected CloudPreferences into DistributionRepository to write distribution mapping data and update status into event-specific tabs ("Distribusi_[EventName]") within the internal QRTix_Data spreadsheet. Added pre-flight external sheet read permission check (validateExternalSheetAccess) with specific error messaging. Updated DistributionViewModel and DistributionScreen to resolve tab names dynamically by event name. — (data/repository/DistributionRepository.kt, viewmodel/DistributionViewModel.kt, ui/DistributionScreen.kt, di/AppModule.kt)
+[2026-09-24] — Phase 13A (Task 13.10): Fix Workspace Creation Failure — Handle Missing Spreadsheet: Added CloudNotReadyException to EventRepository for specific error signaling. Added SpreadsheetManager injection and ensureCloudReady() pre-flight helper to TicketViewModel. Patched createAndSwitchEvent() and updateEventName() with cloud readiness check. Added retry dialog UI in DashboardScreen with loading indicator. — (viewmodel/TicketViewModel.kt, data/repository/EventRepository.kt, ui/DashboardScreen.kt)
+[2026-09-24] — Phase 13A (Task 13.9): Fix Cloud Drive Media Cleanup — Delete Old Files on Replace: Added asynchronous cleanup of old logo and background files in Google Drive and local cache when users upload replacements. Added deleteFile to GoogleDriveService and deleteMedia to MediaManager. — (viewmodel/TicketViewModel.kt, data/cloud/GoogleDriveService.kt, data/cloud/MediaManager.kt)
+[2026-09-24] — Phase 13A (Task 13.8): Remove Manual CSV Tab — Simplify Generator to Single Mode: Removed manual CSV import logic and associated states from GeneratorScreen. Simplified the generator layout to only display the quota mode without tabs. Cleaned up branching in the generation execution flow. — (ui/GeneratorScreen.kt)
+[2026-09-24] — Phase 13A (Task 13.7): Fix Category Dropdown — Always Show "Tambah Kategori Baru": Restructured the ExposedDropdownMenu in GeneratorScreen to ensure the "+ Tambah Kategori Baru" option is always displayed even when the ticketCategories list is empty. — (ui/GeneratorScreen.kt)
+[2026-09-24] — Phase 13A (Task 13.6): Remove "Kelola Kategori" From Dashboard & Sidebar: Removed the "Kelola Kategori" option from the main Dashboard screen grid and the Sidebar drawer since category management is now centralized in the Generator screen. Removed unused dialog states and navigation parameters from DashboardScreen. — (ui/DashboardScreen.kt)
+[2026-09-24] — Phase 13A (Task 13.5): Fix User Name Missing From Sidebar After App Restart: Added `userName` and `userPhotoUrl` to `AuthPreferences` and updated `AuthState.Authenticated` to retain and provide the Google profile photo URL. Manually fetched and displayed the profile picture in the sidebar `DashboardScreen` using `LaunchedEffect` and `BitmapFactory`. — (data/AuthPreferences.kt, viewmodel/AuthViewModel.kt, ui/DashboardScreen.kt)
+[2026-09-24] — Phase 13A (Task 13.4): Removed "ADMIT ONE" text from default ticket template and replaced it with a subtle "Created by QRTix." watermark. — (utils/DefaultTemplateRenderer.kt)
+[2026-09-24] — Phase 13A (Task 13.2): Fix Custom Background & Logo Not Applied to Ticket Design: Resolved bgPath from Google Drive File ID to local cached path via resolveMedia() in GeneratorScreen (for export and background service) and TicketEditorScreen (for design preview). Previously only logoPath was resolved, causing bgPath File.exists() checks to always fail and fall back to the default template. — (ui/GeneratorScreen.kt, ui/TicketEditorScreen.kt)
+[2026-09-23] — Phase 13A (Task 13.1): Fix Scan Validation — Boolean Parsing & Smart Merge Sync: Fixed case-insensitive boolean parsing for Google Sheets TRUE/FALSE in TicketRepository and HistoryLogRepository, added 100ms delay before verification read to reduce concurrent scan race conditions, implemented non-destructive smart merge in syncTicketsFromCloud() preserving local scan state, and enforced uppercase normalization on event and category codes across ViewModels. — (data/repository/TicketRepository.kt, data/repository/HistoryLogRepository.kt, viewmodel/TicketViewModel.kt)
 [2026-09-22] — Phase 12.1: Inter-Device Database Transfer: Built export and import workflow using a custom .qrtix package file containing JSON data and media assets. Added UI actions in EventSelectionDialog. — (data/transfer/DatabaseTransferManager.kt [NEW], ui/EventSelectionDialog.kt, ui/DashboardScreen.kt, viewmodel/TicketViewModel.kt)
 [2026-09-22] — Phase 11.7: Post-Refactor Cleanup & Polish: Moved Sync button to Dashboard, Fixed Distribution BackButton navigation, Implemented comprehensive History Logging (Generator/Distribution/Events/Categories), Background QR Generation with Foreground Service and Synthesized Professional Sounds for Scanner — (ui/DashboardScreen.kt, ui/ScannerScreen.kt, ui/DistributionScreen.kt, viewmodel/TicketViewModel.kt, viewmodel/DistributionViewModel.kt, data/cloud/BackgroundUploadManager.kt, ui/GeneratorScreen.kt, services/GenerationTaskHolder.kt [NEW], services/GenerationService.kt [NEW], AndroidManifest.xml, res/raw/sound_success.wav [NEW], res/raw/sound_error.wav [NEW])
 [2026-09-21] — Phase 11.5: UI/UX Overhaul: Added Dashboard Sidebar with Navigation, Logout feature, full Event Profile Screen, Empty State Dashboard, and global slide transitions — (ui/DashboardScreen.kt, MainActivity.kt, ui/EventProfileScreen.kt, ui/EventSelectionDialog.kt, viewmodel/TicketViewModel.kt, viewmodel/AuthViewModel.kt)

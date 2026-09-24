@@ -50,6 +50,7 @@ class TicketViewModel @Inject constructor(
     private val cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
     private val databaseTransferManager: com.tkrz.qrtix.data.transfer.DatabaseTransferManager,
     private val networkMonitor: com.tkrz.qrtix.utils.NetworkMonitor,
+    private val spreadsheetManager: com.tkrz.qrtix.data.cloud.SpreadsheetManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -82,10 +83,20 @@ class TicketViewModel @Inject constructor(
     private val _isScanLoading = MutableStateFlow(false)
     val isScanLoading: StateFlow<Boolean> = _isScanLoading
 
+    private val _isMediaUploading = MutableStateFlow(false)
+    val isMediaUploading: StateFlow<Boolean> = _isMediaUploading
+
     private val _lastSyncTime = MutableStateFlow<Long>(System.currentTimeMillis())
     val lastSyncTime: StateFlow<Long> = _lastSyncTime
 
     private var syncJob: kotlinx.coroutines.Job? = null
+
+    // Cloud initialization retry dialog state
+    private val _showRetryInitDialog = MutableStateFlow(false)
+    val showRetryInitDialog: StateFlow<Boolean> = _showRetryInitDialog
+
+    private val _isInitializingCloud = MutableStateFlow(false)
+    val isInitializingCloud: StateFlow<Boolean> = _isInitializingCloud
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val ticketCategories: StateFlow<List<com.tkrz.qrtix.data.TicketCategory>> = activeEventId
@@ -317,7 +328,7 @@ class TicketViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val trimmedName = name.trim()
-                val trimmedCode = eventCode.trim()
+                val trimmedCode = eventCode.trim().uppercase()
                 if (trimmedName.isEmpty() || trimmedCode.isEmpty()) return@launch
                 
                 if (allEvents.value.any { it.name.equals(trimmedName, ignoreCase = true) }) {
@@ -328,6 +339,9 @@ class TicketViewModel @Inject constructor(
                     launch(Dispatchers.Main) { showErrorToast("Kode event sudah ada!") }
                     return@launch
                 }
+                
+                // Cloud pre-flight check — ensure spreadsheet is initialized
+                if (!ensureCloudReady()) return@launch
                 
                 if (eventRepository.checkEventCodeExistsInCloud(trimmedCode)) {
                     launch(Dispatchers.Main) { showErrorToast("Kode event sudah digunakan oleh event lain (Cloud)!") }
@@ -351,6 +365,9 @@ class TicketViewModel @Inject constructor(
                 launch(Dispatchers.Main) {
                     eventPreferences.setActiveEventId(newId)
                 }
+            } catch (e: com.tkrz.qrtix.data.repository.CloudNotReadyException) {
+                _showRetryInitDialog.value = true
+                showErrorToast("Gagal menyiapkan database cloud. Periksa koneksi internet.")
             } catch (e: Exception) {
                 e.printStackTrace()
                 showErrorToast("Gagal membuat workspace: ${e.message}")
@@ -379,79 +396,134 @@ class TicketViewModel @Inject constructor(
 
     fun updateEventName(id: Long, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val trimmedName = newName.trim()
-            if (allEvents.value.any { it.name.equals(trimmedName, ignoreCase = true) && it.id != id }) {
-                showErrorToast("Nama workspace sudah ada!")
-                return@launch
-            }
-            
-            if (eventRepository.checkEventNameExistsInCloud(trimmedName)) {
-                launch(Dispatchers.Main) { showErrorToast("Nama event sudah digunakan di perangkat lain (Cloud)!") }
-                return@launch
-            }
-            
-            val profilesFolderId = cloudPreferences.profilesFolderId
-            if (profilesFolderId != null) {
-                if (driveFolderManager.checkFolderExists(trimmedName, profilesFolderId)) {
-                    launch(Dispatchers.Main) { showErrorToast("Folder event sudah ada di Google Drive (Cloud)!") }
+            try {
+                val trimmedName = newName.trim()
+                if (allEvents.value.any { it.name.equals(trimmedName, ignoreCase = true) && it.id != id }) {
+                    showErrorToast("Nama workspace sudah ada!")
                     return@launch
                 }
-            }
-            
-            val event = eventRepository.getEventById(id)
-            if (event != null) {
-                val oldName = event.name
-                val updatedEvent = event.copy(name = trimmedName)
-                eventRepository.updateEvent(updatedEvent)
                 
-                historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
-                    eventId = id,
-                    action = "Ubah Event",
-                    description = "Ubah nama event dari $oldName menjadi $trimmedName"
-                ))
+                // Cloud pre-flight check — ensure spreadsheet is initialized
+                if (!ensureCloudReady()) return@launch
                 
-                if (id == activeEventId.value) {
-                    _activeEvent.value = updatedEvent
+                if (eventRepository.checkEventNameExistsInCloud(trimmedName)) {
+                    launch(Dispatchers.Main) { showErrorToast("Nama event sudah digunakan di perangkat lain (Cloud)!") }
+                    return@launch
                 }
                 
-                // Rename in Google Drive
+                val profilesFolderId = cloudPreferences.profilesFolderId
                 if (profilesFolderId != null) {
-                    val folderId = driveFolderManager.getOrCreateFolder(oldName, profilesFolderId)
-                    if (folderId != null) {
-                        driveFolderManager.renameFolder(folderId, trimmedName)
+                    if (driveFolderManager.checkFolderExists(trimmedName, profilesFolderId)) {
+                        launch(Dispatchers.Main) { showErrorToast("Folder event sudah ada di Google Drive (Cloud)!") }
+                        return@launch
                     }
                 }
+                
+                val event = eventRepository.getEventById(id)
+                if (event != null) {
+                    val oldName = event.name
+                    val updatedEvent = event.copy(name = trimmedName)
+                    eventRepository.updateEvent(updatedEvent)
+                    
+                    historyLogRepository.insertLog(com.tkrz.qrtix.data.HistoryLog(
+                        eventId = id,
+                        action = "Ubah Event",
+                        description = "Ubah nama event dari $oldName menjadi $trimmedName"
+                    ))
+                    
+                    if (id == activeEventId.value) {
+                        _activeEvent.value = updatedEvent
+                    }
+                    
+                    // Rename in Google Drive
+                    if (profilesFolderId != null) {
+                        val folderId = driveFolderManager.getOrCreateFolder(oldName, profilesFolderId)
+                        if (folderId != null) {
+                            driveFolderManager.renameFolder(folderId, trimmedName)
+                        }
+                    }
+                }
+            } catch (e: com.tkrz.qrtix.data.repository.CloudNotReadyException) {
+                _showRetryInitDialog.value = true
+                showErrorToast("Gagal menyiapkan database cloud. Periksa koneksi internet.")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showErrorToast("Gagal mengubah nama event: ${e.message}")
             }
         }
     }
 
     fun updateEventMedia(eventId: Long, logoPath: String?, bgPath: String?) {
         viewModelScope.launch(Dispatchers.IO) {
-            val event = eventRepository.getEventById(eventId)
-            if (event != null) {
-                var finalLogoId = event.logoPath
-                var finalBgId = event.bgPath
-                
-                // If the provided path is a local path (starts with /), upload it
-                if (logoPath != null && logoPath.startsWith("/")) {
-                    val uploadedId = mediaManager.uploadMedia(java.io.File(logoPath), event.name, true)
-                    if (uploadedId != null) finalLogoId = uploadedId
-                } else if (logoPath == null) {
-                    finalLogoId = null
-                }
+            _isMediaUploading.value = true
+            try {
+                val event = eventRepository.getEventById(eventId)
+                if (event != null) {
+                    var finalLogoId = event.logoPath
+                    var finalBgId = event.bgPath
+                    var logoChanged = false
+                    var bgChanged = false
+                    
+                    val oldLogoId = event.logoPath
+                    val oldBgId = event.bgPath
+                    
+                    // If the provided path is a local path (starts with /), upload it
+                    if (logoPath != null && logoPath.startsWith("/")) {
+                        val uploadedId = mediaManager.uploadMedia(java.io.File(logoPath), event.name, true)
+                        if (uploadedId != null) {
+                            finalLogoId = uploadedId
+                            logoChanged = true
+                        }
+                    } else if (logoPath == null) {
+                        finalLogoId = null
+                    }
 
-                if (bgPath != null && bgPath.startsWith("/")) {
-                    val uploadedId = mediaManager.uploadMedia(java.io.File(bgPath), event.name, false)
-                    if (uploadedId != null) finalBgId = uploadedId
-                } else if (bgPath == null) {
-                    finalBgId = null
-                }
+                    if (bgPath != null && bgPath.startsWith("/")) {
+                        val uploadedId = mediaManager.uploadMedia(java.io.File(bgPath), event.name, false)
+                        if (uploadedId != null) {
+                            finalBgId = uploadedId
+                            bgChanged = true
+                        }
+                    } else if (bgPath == null) {
+                        finalBgId = null
+                    }
 
-                val updatedEvent = event.copy(logoPath = finalLogoId, bgPath = finalBgId)
-                eventRepository.updateEvent(updatedEvent)
-                if (eventId == activeEventId.value) {
-                    _activeEvent.value = updatedEvent
+                    val updatedEvent = event.copy(logoPath = finalLogoId, bgPath = finalBgId)
+                    eventRepository.updateEvent(updatedEvent)
+                    if (eventId == activeEventId.value) {
+                        _activeEvent.value = updatedEvent
+                    }
+                    
+                    if (logoChanged) {
+                        showSuccessToast("✅ Logo event berhasil diperbarui")
+                        if (oldLogoId != null && finalLogoId != oldLogoId) {
+                            launch {
+                                try {
+                                    mediaManager.deleteMedia(oldLogoId)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
+                    }
+                    if (bgChanged) {
+                        showSuccessToast("✅ Background tiket berhasil diperbarui")
+                        if (oldBgId != null && finalBgId != oldBgId) {
+                            launch {
+                                try {
+                                    mediaManager.deleteMedia(oldBgId)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        }
+                    }
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                showErrorToast("Gagal mengunggah gambar: ${e.message}")
+            } finally {
+                _isMediaUploading.value = false
             }
         }
     }
@@ -483,6 +555,49 @@ class TicketViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.Main) {
             android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * Pre-flight check: ensures the cloud spreadsheet is initialized.
+     * If spreadsheetId is null, attempts to initialize it.
+     * Returns true if cloud is ready, false if initialization failed.
+     */
+    private suspend fun ensureCloudReady(): Boolean {
+        if (cloudPreferences.spreadsheetId != null) return true
+        return try {
+            val result = spreadsheetManager.initializeSpreadsheet()
+            result.isSuccess
+        } catch (e: Exception) {
+            false
+        }.also { success ->
+            if (!success) {
+                _showRetryInitDialog.value = true
+                showErrorToast("Gagal menyiapkan database cloud. Periksa koneksi internet.")
+            }
+        }
+    }
+
+    fun retrySpreadsheetInit() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isInitializingCloud.value = true
+            try {
+                val result = spreadsheetManager.initializeSpreadsheet()
+                if (result.isSuccess) {
+                    _showRetryInitDialog.value = false
+                    showSuccessToast("Database cloud berhasil disiapkan!")
+                } else {
+                    showErrorToast("Gagal menyiapkan database cloud. Periksa koneksi internet.")
+                }
+            } catch (e: Exception) {
+                showErrorToast("Gagal menyiapkan database cloud: ${e.message}")
+            } finally {
+                _isInitializingCloud.value = false
+            }
+        }
+    }
+
+    fun dismissRetryDialog() {
+        _showRetryInitDialog.value = false
     }
 
     fun deleteEvent(id: Long) {

@@ -80,15 +80,15 @@ object DefaultTemplateRenderer {
         }
         canvas.drawText("EVENT CODE: ${event?.eventCode ?: "N/A"}", cx, padding + 220f, subheaderPaint)
 
-        // 6. Draw "ADMIT ONE" label at the bottom
-        val admitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#38bdf8") // Light Blue
-            textSize = 48f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        // 6. Add "Created by QRTix." watermark at the bottom
+        val watermarkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#94a3b8") // Slate 400, subtle
+            textSize = 28f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
             textAlign = Paint.Align.CENTER
-            letterSpacing = 0.2f
+            alpha = 150 // Semi-transparent
         }
-        canvas.drawText("ADMIT ONE", cx, outHeight - padding - 80f, admitPaint)
+        canvas.drawText("Created by QRTix.", cx, outHeight - padding - 40f, watermarkPaint)
 
         return bitmap
     }

@@ -55,9 +55,15 @@ fun TicketEditorScreen(
     var showGuides by remember { mutableStateOf(true) }
     var showNumericPanel by remember { mutableStateOf(false) }
 
-    val baseBitmap = remember(activeEvent?.bgPath) {
-        if (activeEvent?.bgPath != null) {
-            val file = File(activeEvent!!.bgPath!!)
+    // Resolve bgPath from Drive File ID to local cached path
+    var localBgPath by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(activeEvent?.bgPath) {
+        localBgPath = activeEvent?.bgPath?.let { viewModel.resolveMedia(it) }
+    }
+
+    val baseBitmap = remember(localBgPath, activeEvent) {
+        if (localBgPath != null) {
+            val file = File(localBgPath!!)
             if (file.exists()) {
                 val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
                 BitmapFactory.decodeFile(file.absolutePath, options)

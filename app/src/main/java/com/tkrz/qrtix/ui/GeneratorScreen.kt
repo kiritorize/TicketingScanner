@@ -23,7 +23,6 @@ import com.tkrz.qrtix.viewmodel.TicketViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-import com.github.doyaaaaaken.kotlincsv.dsl.csvReader
 import com.tkrz.qrtix.ui.components.EventBadge
 import com.tkrz.qrtix.ui.CategoryManagementDialog
 
@@ -33,17 +32,12 @@ fun GeneratorScreen(
     viewModel: TicketViewModel,
     onNavigateBack: () -> Unit
 ) {
-    var codeInput by remember { mutableStateOf("") }
-    var catInput by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var progressText by remember { mutableStateOf("") }
     var showFinishDialog by remember { mutableStateOf(false) }
     
     val activeEvent by viewModel.activeEvent.collectAsState()
     val ticketCategories by viewModel.ticketCategories.collectAsState()
-    
-    var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabs = listOf("Manual CSV", "Mode Kuota")
     
     var quotaCategory by remember { mutableStateOf("") }
     var quotaCategoryExpanded by remember { mutableStateOf(false) }
@@ -108,7 +102,7 @@ fun GeneratorScreen(
             }
             
             var insertedCount = 0
-            if (selectedTabIndex == 1 && activeEvent != null) {
+            if (activeEvent != null) {
                 progressText = "Menyimpan ke Database..."
                 val catForLog = generateCats.firstOrNull() ?: ""
                 val evtName = activeEvent?.name ?: ""
@@ -116,7 +110,8 @@ fun GeneratorScreen(
             }
 
             val resolvedLogoPath = viewModel.resolveMedia(activeEvent?.logoPath)
-            val eventForExport = activeEvent?.copy(logoPath = resolvedLogoPath)
+            val resolvedBgPath = viewModel.resolveMedia(activeEvent?.bgPath)
+            val eventForExport = activeEvent?.copy(logoPath = resolvedLogoPath, bgPath = resolvedBgPath)
 
             if (keepScreenOn) {
                 val exporter = com.tkrz.qrtix.utils.TicketExporter(context)
@@ -164,45 +159,7 @@ fun GeneratorScreen(
         }
     }
 
-    val csvLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            scope.launch {
-                try {
-                    val stream = context.contentResolver.openInputStream(it)
-                    val rows = withContext(Dispatchers.IO) {
-                        csvReader().readAll(stream!!)
-                    }
-                    
-                    val codes = mutableListOf<String>()
-                    val cats = mutableListOf<String>()
-                    
-                    var isFirstLine = true
-                    rows.forEach { row ->
-                        if (row.size >= 2) {
-                            val qr = row[0].trim()
-                            val type = row[1].trim()
-                            
-                            if (isFirstLine && (qr.equals("ID", true) || qr.equals("Kode QR", true))) {
-                                isFirstLine = false
-                            } else {
-                                codes.add(qr)
-                                cats.add(type)
-                                isFirstLine = false
-                            }
-                        }
-                    }
-                    
-                    codeInput = codes.joinToString("\n")
-                    catInput = cats.joinToString("\n")
-                    android.widget.Toast.makeText(context, "Berhasil memuat ${codes.size} baris", android.widget.Toast.LENGTH_SHORT).show()
-                } catch (e: Exception) {
-                    android.widget.Toast.makeText(context, "Gagal membaca file!", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
+
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     if (errorMessage != null) {
@@ -222,7 +179,7 @@ fun GeneratorScreen(
                 title = { 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Generator Tiket Baru")
+                            Text("Generate Tiket")
                         }
                         EventBadge(event = activeEvent)
                     }
@@ -246,126 +203,78 @@ fun GeneratorScreen(
                 .padding(16.dp)
         ) {
             item {
-                TabRow(selectedTabIndex = selectedTabIndex) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTabIndex == index,
-                            onClick = { selectedTabIndex = index },
-                            text = { Text(title) }
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (selectedTabIndex == 0) {
-                    Text(
-                        "Gunakan mode ini untuk membuat QR dari daftar kode yang sudah ada.",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                OutlinedTextField(
+                    value = quotaPrefix,
+                    onValueChange = {},
+                    label = { Text("Kode Event (Prefix)") },
+                    readOnly = true,
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedButton(
-                        onClick = { csvLauncher.launch("*/*") },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Impor Data dari File CSV / Excel")
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    NumberedInputBox(
-                        label = "Kode Unik",
-                        placeholder = "Ketik / paste kode unik...",
-                        value = codeInput,
-                        onValueChange = { codeInput = it },
-                        onClear = { codeInput = "" }
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    NumberedInputBox(
-                        label = "Kategori",
-                        placeholder = "Ketik / paste kategori...",
-                        value = catInput,
-                        onValueChange = { catInput = it },
-                        onClear = { catInput = "" }
-                    )
-                } else {
-                    Text(
-                        "Gunakan mode ini untuk membuat tiket secara massal dengan format standar QRTix.",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
+                )
+                Text(
+                    text = "Prefix diambil dari Kode Event yang sudah ditetapkan saat membuat profil event.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                ExposedDropdownMenuBox(
+                    expanded = quotaCategoryExpanded,
+                    onExpandedChange = { quotaCategoryExpanded = it }
+                ) {
                     OutlinedTextField(
-                        value = quotaPrefix,
+                        value = quotaCategory,
                         onValueChange = {},
-                        label = { Text("Kode Event (Prefix)") },
                         readOnly = true,
-                        enabled = false,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                            disabledBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        label = { Text("Kategori Tiket") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = quotaCategoryExpanded) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor()
                     )
-                    Text(
-                        text = "Prefix diambil dari Kode Event yang sudah ditetapkan saat membuat profil event.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ExposedDropdownMenuBox(
+                    ExposedDropdownMenu(
                         expanded = quotaCategoryExpanded,
-                        onExpandedChange = { quotaCategoryExpanded = it }
+                        onDismissRequest = { quotaCategoryExpanded = false }
                     ) {
-                        OutlinedTextField(
-                            value = quotaCategory,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Kategori Tiket") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = quotaCategoryExpanded) },
-                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = quotaCategoryExpanded,
-                            onDismissRequest = { quotaCategoryExpanded = false }
-                        ) {
-                            if (ticketCategories.isEmpty()) {
+                        if (ticketCategories.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Belum ada kategori", color = MaterialTheme.colorScheme.error) },
+                                onClick = { quotaCategoryExpanded = false }
+                            )
+                        } else {
+                            ticketCategories.forEach { category ->
                                 DropdownMenuItem(
-                                    text = { Text("Belum ada kategori", color = MaterialTheme.colorScheme.error) },
-                                    onClick = { quotaCategoryExpanded = false }
-                                )
-                            } else {
-                                ticketCategories.forEach { category ->
-                                    DropdownMenuItem(
-                                        text = { Text("${category.categoryName} (${category.categoryCode})") },
-                                        onClick = {
-                                            quotaCategory = category.categoryCode
-                                            quotaCategoryExpanded = false
-                                        }
-                                    )
-                                }
-                                Divider(modifier = Modifier.padding(vertical = 4.dp))
-                                DropdownMenuItem(
-                                    text = { Text("+ Tambah Kategori Baru", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium) },
+                                    text = { Text("${category.categoryName} (${category.categoryCode})") },
                                     onClick = {
+                                        quotaCategory = category.categoryCode
                                         quotaCategoryExpanded = false
-                                        showCategoryDialog = true
                                     }
                                 )
                             }
                         }
+                        Divider(modifier = Modifier.padding(vertical = 4.dp))
+                        DropdownMenuItem(
+                            text = { Text("+ Tambah Kategori Baru", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+                            onClick = {
+                                quotaCategoryExpanded = false
+                                showCategoryDialog = true
+                            }
+                        )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = quotaCount,
-                        onValueChange = { quotaCount = it.filter { char -> char.isDigit() } },
-                        label = { Text("Jumlah Kuota") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = quotaCount,
+                    onValueChange = { quotaCount = it.filter { char -> char.isDigit() } },
+                    label = { Text("Jumlah Kuota") },
+                    modifier = Modifier.fillMaxWidth()
+                )
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
@@ -386,33 +295,16 @@ fun GeneratorScreen(
                         val codes = mutableListOf<String>()
                         val cats = mutableListOf<String>()
 
-                        if (selectedTabIndex == 0) {
-                            codes.addAll(codeInput.split("\n").map { it.trim() }.filter { it.isNotBlank() })
-                            cats.addAll(catInput.split("\n").map { it.trim() }.filter { it.isNotBlank() })
-                            if (codes.isEmpty()) return@Button
-                            if (codes.size != cats.size) {
-                                errorMessage = "Jumlah baris tidak sama!\n\nKode: ${codes.size} baris\nKategori: ${cats.size} baris"
-                                return@Button
-                            }
-                            
-                            val validCategoryCodes = ticketCategories.map { it.categoryCode }
-                            val invalidCats = cats.filter { !validCategoryCodes.contains(it) }.distinct()
-                            if (invalidCats.isNotEmpty()) {
-                                errorMessage = "Kategori berikut tidak terdaftar atau tidak sesuai ID (Code):\n\n" + invalidCats.joinToString(", ") + "\n\nHarap pastikan semua baris menggunakan ID Singkatan kategori yang valid."
-                                return@Button
-                            }
-                        } else {
-                            val count = quotaCount.toIntOrNull() ?: 0
-                            if (count <= 0 || quotaCategory.isBlank() || quotaPrefix.isBlank()) {
-                                errorMessage = "Harap isi Prefix, Kategori, dan Jumlah Kuota (min 1)."
-                                return@Button
-                            }
-                            for (i in 1..count) {
-                                val randomToken = com.tkrz.qrtix.utils.TicketFormatters.generateRandomToken(4)
-                                val code = com.tkrz.qrtix.utils.TicketFormatters.formatTicketCode(quotaPrefix, quotaCategory, i, randomToken)
-                                codes.add(code)
-                                cats.add(quotaCategory)
-                            }
+                        val count = quotaCount.toIntOrNull() ?: 0
+                        if (count <= 0 || quotaCategory.isBlank() || quotaPrefix.isBlank()) {
+                            errorMessage = "Harap isi Prefix, Kategori, dan Jumlah Kuota (min 1)."
+                            return@Button
+                        }
+                        for (i in 1..count) {
+                            val randomToken = com.tkrz.qrtix.utils.TicketFormatters.generateRandomToken(4)
+                            val code = com.tkrz.qrtix.utils.TicketFormatters.formatTicketCode(quotaPrefix, quotaCategory, i, randomToken)
+                            codes.add(code)
+                            cats.add(quotaCategory)
                         }
 
                         val codeToRows = mutableMapOf<String, MutableList<Int>>()
@@ -428,11 +320,7 @@ fun GeneratorScreen(
 
                         generateCodes = codes
                         generateCats = cats
-                        if (selectedTabIndex == 1) {
-                            showGenerateConfirmation = true
-                        } else {
-                            executeGeneration()
-                        }
+                        showGenerateConfirmation = true
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
                     enabled = !isGenerating
@@ -501,9 +389,7 @@ fun GeneratorScreen(
             text = { 
                 Column {
                     Text("✅ Berhasil men-generate ${generateCodes.size} tiket")
-                    if (selectedTabIndex == 1) {
-                        Text("✅ ${generateCodes.size} tiket ditambahkan ke database")
-                    }
+                    Text("✅ ${generateCodes.size} tiket ditambahkan ke database")
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("File ZIP berhasil disimpan di folder Documents/QRTix.")
                     Spacer(modifier = Modifier.height(8.dp))

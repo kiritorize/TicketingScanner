@@ -4,16 +4,18 @@ import com.tkrz.qrtix.data.CategoryDao
 import com.tkrz.qrtix.data.TicketCategory
 import com.tkrz.qrtix.data.cloud.CloudPreferences
 import com.tkrz.qrtix.data.cloud.GoogleSheetsService
+import com.tkrz.qrtix.data.DatabaseProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 class CategoryRepository @Inject constructor(
-    private val categoryDao: CategoryDao,
+    private val databaseProvider: DatabaseProvider,
     private val sheetsService: GoogleSheetsService,
     private val cloudPreferences: CloudPreferences
 ) {
+    private val categoryDao get() = databaseProvider.categoryDao
     fun getCategoriesForEventFlow(eventId: Long): Flow<List<TicketCategory>> =
         categoryDao.getCategoriesForEventFlow(eventId)
 

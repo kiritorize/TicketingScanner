@@ -77,70 +77,8 @@ Format template:
 
 ### Phase 13A: Critical Bug Fixes & UI Improvements
 
-#### Task 13.1: Fix Scan Validation — Boolean Parsing & Smart Merge Sync
-- **Status**: [ ]
-- **Priority**: Critical
-- **Description**:
-  - **ROOT CAUSE**: `toBooleanStrictOrNull()` in `TicketRepository` only accepts lowercase `"true"`/`"false"`. Google Sheets API sometimes returns `"TRUE"` (uppercase), causing scanned tickets to be read as unscanned. Additionally, `syncTicketsFromCloud()` uses delete-all-then-insert, which overwrites fresh scan data with stale cloud data.
-  - **IMPLEMENTATION**:
-    1. In `data/repository/TicketRepository.kt`, replace ALL `toBooleanStrictOrNull()` calls with case-insensitive parsing:
-       ```kotlin
-       // BEFORE (broken):
-       val isScanned = row.getOrNull(3)?.toString()?.toBooleanStrictOrNull() ?: false
-       // AFTER (fixed):
-       val isScanned = row.getOrNull(3)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
-       ```
-       Apply this fix in **4 locations**:
-       - `validateAndScanOnline()` — line ~92 (`isScanned` parsing)
-       - `validateAndScanOnline()` — line ~96 (`isModified` parsing)
-       - `syncTicketsFromCloud()` — line ~174 (`isScanned` parsing)
-       - `syncTicketsFromCloud()` — line ~178 (`isModified` parsing)
-    2. In `validateAndScanOnline()`, after writing `isScanned=true` to Sheets, add a 100ms delay before the verification read to reduce race condition risk in multi-device scanning:
-       ```kotlin
-       // After the batchUpdate write
-       delay(100) // Let concurrent writes settle before verification
-       // Then perform the verification read
-       ```
-    3. Replace the `syncTicketsFromCloud()` delete-all-then-insert strategy with a **smart merge**:
-       ```kotlin
-       suspend fun syncTicketsFromCloud(eventId: Long) {
-           val cloudTickets = readTicketsFromSheets(eventId)
-           val localTickets = ticketDao.getAllTickets(eventId)
-           val localMap = localTickets.associateBy { it.qrContent }
-           
-           val mergedTickets = cloudTickets.map { cloudTicket ->
-               val localTicket = localMap[cloudTicket.qrContent]
-               if (localTicket != null && localTicket.isScanned && !cloudTicket.isScanned) {
-                   // Local has been scanned but cloud hasn't caught up — keep local (fresher)
-                   localTicket
-               } else if (cloudTicket.isScanned && (localTicket == null || !localTicket.isScanned)) {
-                   // Cloud was scanned (from another device) — take cloud
-                   cloudTicket
-               } else if (localTicket != null && cloudTicket.scannedAt != null && localTicket.scannedAt != null) {
-                   // Both scanned — keep the one with the earlier timestamp (first scan wins)
-                   if (localTicket.scannedAt!! <= cloudTicket.scannedAt!!) localTicket else cloudTicket
-               } else {
-                   cloudTicket // Default: trust cloud
-               }
-           }
-           
-           // Add any cloud-only tickets (new tickets from other devices)
-           ticketDao.deleteAllTickets(eventId)
-           ticketDao.insertTickets(mergedTickets)
-       }
-       ```
-    4. Audit all ID inputs/storage to ensure **uppercase enforcement**:
-       - Event codes: already `.uppercase()` at input — verify at storage and comparison
-       - Category codes: already `.uppercase()` at input — verify at storage and comparison
-       - QR content: already `.uppercase().trim()` in `processQrCode()` — verify consistency
-  - **CROSS-SYSTEM WARNING**: The smart merge logic assumes `qrContent` is the unique key per event. Verify the UNIQUE INDEX on `(qrContent, eventId)` is intact. The 100ms delay in scan verification is minimal but adds ~100ms to each scan response time.
-- **Affected files**: `data/repository/TicketRepository.kt`
-- **Verification**: Scan a ticket → verify status changes to "Sudah Scan" in database. Scan same ticket again → verify "Tiket sudah discan" error. Wait for auto-sync → verify status doesn't revert. Test on two devices scanning different tickets simultaneously.
-
----
-
 #### Task 13.2: Fix Custom Background & Logo Not Applied to Ticket Design
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: Critical
 - **Description**:
   - **ROOT CAUSE**: In `GeneratorScreen.kt`, only `logoPath` is resolved from a Google Drive File ID to a local path via `viewModel.resolveMedia()`. The `bgPath` is never resolved — it stays as a Drive File ID string (e.g., `"1aBcDeFg..."`), so `File(bgPath).exists()` in `TicketExporter` returns `false` and the default template is used.
@@ -168,11 +106,12 @@ Format template:
   - **CROSS-SYSTEM WARNING**: `resolveMedia()` is a suspend function that may download the file from Drive if not cached. Ensure it's called inside a coroutine scope (it already is in GeneratorScreen via `scope.launch`).
 - **Affected files**: `ui/GeneratorScreen.kt`, `ui/TicketEditorScreen.kt`, `services/GenerationService.kt`
 - **Verification**: Set a custom background + logo in Event Profile → open Ticket Editor → verify custom images appear (not default template). Generate tickets → verify output images use the custom background and logo.
+- **Completion Notes**: Fixed by resolving `bgPath` from Google Drive File ID to local cached path in two locations: (1) `GeneratorScreen.kt` — added `resolveMedia(bgPath)` call alongside existing `resolveMedia(logoPath)` before creating `eventForExport`, which also fixes background generation via `GenerationService` since it inherits the event from `GenerationTaskHolder`; (2) `TicketEditorScreen.kt` — replaced direct `File(bgPath)` access with a `LaunchedEffect` that resolves the Drive File ID via `viewModel.resolveMedia()` before loading the bitmap, matching the pattern already used for `logoPath` in `EventProfileScreen`. No changes needed in `GenerationService.kt`. Verified compile with `./gradlew assembleDebug`.
 
 ---
 
 #### Task 13.3: Add Notification After Selecting Background/Logo Image
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: Medium
 - **Description**:
   - **ROOT CAUSE**: `EventProfileScreen` launcher callbacks call `viewModel.updateEventMedia()` silently — no toast on success or failure. No loading indicator during upload.
@@ -195,11 +134,12 @@ Format template:
        Set `true` before upload starts, `false` after completion (success or failure).
 - **Affected files**: `viewmodel/TicketViewModel.kt`, `ui/EventProfileScreen.kt`
 - **Verification**: Pick a new logo → verify loading spinner appears → verify success toast. Pick a new background → same verification. Disconnect internet → pick an image → verify error toast.
+- **Completion Notes**: Added `_isMediaUploading` StateFlow to `TicketViewModel` and updated `updateEventMedia()` to emit uploading state using a `try-finally` block. Added checks to compare new local paths against current media, and added toast notifications for both logo and background successful updates, as well as an error toast on failure. In `EventProfileScreen`, collected `isMediaUploading` and added a `CircularProgressIndicator` overlay in the logo box and inside the background button while uploading. Also disabled the `clickable` modifiers during upload to prevent multiple simultaneous requests.
 
 ---
 
 #### Task 13.4: Remove "ADMIT ONE" and Update Default Template
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: Low
 - **Description**:
   - **ROOT CAUSE**: `DefaultTemplateRenderer.kt` lines 83-91 draw "ADMIT ONE" text on the default ticket template.
@@ -226,11 +166,12 @@ Format template:
     3. Remove the existing QRTix watermark in the bottom corner (if any) to avoid duplication — the new "Created by QRTix." replaces it.
 - **Affected files**: `utils/DefaultTemplateRenderer.kt`
 - **Verification**: Create an event without a custom background → generate tickets → verify the output has the event name header and "Created by QRTix." watermark at the bottom. Verify "ADMIT ONE" text is gone.
+- **Completion Notes**: Removed "ADMIT ONE" text from `DefaultTemplateRenderer.kt` and replaced it with a subtle "Created by QRTix." watermark using italic slate-400 text with 150 alpha. Verified code logic.
 
 ---
 
 #### Task 13.5: Fix User Name Missing From Sidebar After App Restart
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: Medium
 - **Description**:
   - **ROOT CAUSE**: `AuthViewModel.checkAuthStatus()` hardcodes `AuthState.Authenticated("User", null)` instead of reading stored data. `AuthPreferences` does not store `displayName` or `photoUrl`.
@@ -278,151 +219,13 @@ Format template:
   - **CROSS-SYSTEM WARNING**: `setSignedIn()` signature changes — update ALL callers. Existing calls `setSignedIn(false, null)` in `signOut()` will still work because `displayName` and `photoUrl` have default `null` values.
 - **Affected files**: `data/AuthPreferences.kt`, `viewmodel/AuthViewModel.kt`, `ui/DashboardScreen.kt`
 - **Verification**: Login with Google → verify sidebar shows name, email, and profile photo. Close and reopen app → verify sidebar still shows name, email, and photo (not "User").
+- **Completion Notes**: Added `userName` and `userPhotoUrl` to `AuthPreferences` and updated `setSignedIn` to save them. Updated `AuthState.Authenticated` to include `photoUrl` and emitted it from `AuthViewModel.kt` during sign-in, init, and checkAuthStatus. In `DashboardScreen.kt`, used `LaunchedEffect` with `Dispatchers.IO` to fetch the profile picture bitmap manually via `URL(photoUrl).openStream()` and displayed it inside an `Image` composable in the sidebar header. Verified all changes.
 
 ---
 
-#### Task 13.6: Remove "Kelola Kategori" From Dashboard & Sidebar
-- **Status**: [ ]
-- **Priority**: Low
-- **Description**:
-  - **IMPLEMENTATION**:
-    1. In `ui/DashboardScreen.kt`, remove the "Kelola Kategori" item from the `secondaryButtons` list (line 472):
-       ```kotlin
-       // DELETE this line:
-       Pair("Kelola Kategori", { showCategoryDialog = true } to Icons.Default.Category),
-       ```
-    2. In `ui/DashboardScreen.kt` `SidebarContent`, remove the "Kelola Kategori" `NavigationDrawerItem` (lines 716-721):
-       ```kotlin
-       // DELETE this block:
-       NavigationDrawerItem(
-           icon = { Icon(Icons.Default.Category, contentDescription = null) },
-           label = { Text("Kelola Kategori") },
-           selected = false,
-           onClick = onNavigateToCategory
-       )
-       ```
-    3. Remove the `onNavigateToCategory` parameter from `SidebarContent` function signature if no longer used by any caller.
-    4. Clean up the `showCategoryDialog` state and `CategoryManagementDialog` from `DashboardScreen` if no longer triggered from anywhere within that screen. Keep the `CategoryManagementDialog` composable component itself — it's still used by `GeneratorScreen`.
-  - **CROSS-SYSTEM WARNING**: Category management is still accessible from `GeneratorScreen` (Task 13.7 ensures it's always available in the dropdown). Do not delete the `CategoryManagementDialog.kt` file.
-- **Affected files**: `ui/DashboardScreen.kt`
-- **Verification**: Open dashboard → verify "Kelola Kategori" button is gone from the grid. Open sidebar → verify "Kelola Kategori" item is gone. Open Generator → verify category management still works from the dropdown.
-
----
-
-#### Task 13.7: Fix Category Dropdown — Always Show "Tambah Kategori Baru"
-- **Status**: [ ]
-- **Priority**: Medium
-- **Description**:
-  - **ROOT CAUSE**: In `GeneratorScreen.kt`, the "+ Tambah Kategori Baru" dropdown menu item is inside the `else` block (when categories exist). When no categories exist, only "Belum ada kategori" is shown with no way to create one.
-  - **IMPLEMENTATION**:
-    1. In `ui/GeneratorScreen.kt` (around lines 335-357), restructure the dropdown menu to always show the add option:
-       ```kotlin
-       ExposedDropdownMenu(
-           expanded = quotaCategoryExpanded,
-           onDismissRequest = { quotaCategoryExpanded = false }
-       ) {
-           if (ticketCategories.isEmpty()) {
-               DropdownMenuItem(
-                   text = { Text("Belum ada kategori", color = MaterialTheme.colorScheme.error) },
-                   onClick = { quotaCategoryExpanded = false }
-               )
-           } else {
-               ticketCategories.forEach { category ->
-                   DropdownMenuItem(
-                       text = { Text("${category.categoryName} (${category.categoryCode})") },
-                       onClick = {
-                           quotaCategory = category.categoryCode
-                           quotaCategoryExpanded = false
-                       }
-                   )
-               }
-           }
-           // ALWAYS show this — moved OUTSIDE the if/else
-           Divider(modifier = Modifier.padding(vertical = 4.dp))
-           DropdownMenuItem(
-               text = { Text("+ Tambah Kategori Baru", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
-               onClick = {
-                   showCategoryDialog = true
-                   quotaCategoryExpanded = false
-               }
-           )
-       }
-       ```
-    2. The `CategoryManagementDialog` opened from here should allow full management: add, rename, and delete categories.
-- **Affected files**: `ui/GeneratorScreen.kt`
-- **Verification**: Create a fresh event with no categories → open Generator → click category dropdown → verify "+ Tambah Kategori Baru" option is visible. Click it → verify dialog opens. Add a category → verify it appears in the dropdown.
-
----
-
-#### Task 13.8: Remove Manual CSV Tab — Simplify Generator to Single Mode
-- **Status**: [ ]
-- **Priority**: Medium
-- **Description**:
-  - **CONTEXT**: The "Manual CSV" tab in `GeneratorScreen` allows users to paste/import pre-existing ticket codes. Per user decision, this mode is removed — all ticket codes must be auto-generated by QRTix via the quota mode.
-  - **IMPLEMENTATION**:
-    1. In `ui/GeneratorScreen.kt`, remove the tab-related code:
-       - Remove `selectedTabIndex` state variable (line 45)
-       - Remove `tabs` list definition (line 46)
-       - Remove `codeInput`, `catInput` state variables (lines 36-37)
-       - Remove `csvLauncher` launcher (lines 167-205)
-    2. Remove the `TabRow` composable (lines 249-257).
-    3. Remove the `if (selectedTabIndex == 0)` block entirely (lines 260-288) — this is the Manual CSV input UI.
-    4. Keep only the quota mode content (previously inside `else` block at line 289+), making it the only content.
-    5. Rename the screen title from `"Generator Tiket Baru"` to `"Generate Tiket"` in the TopAppBar.
-    6. Remove the "Mode Kuota" label text — the remaining content is the default and only view.
-    7. In `executeGeneration()` (line 95), remove the `if (selectedTabIndex == 0)` vs `selectedTabIndex == 1` branching — only the quota path remains.
-    8. Remove unused imports: `com.github.doyaaaaaken.kotlincsv.dsl.csvReader`, `NumberedInputBox`.
-  - **CROSS-SYSTEM WARNING**: Ensure `executeGeneration()` still correctly handles quota-mode code generation after removing the branching logic. The quota path is `selectedTabIndex == 1` currently — after removal, it becomes the only path.
-- **Affected files**: `ui/GeneratorScreen.kt`
-- **Verification**: Open Generator → verify no tabs visible, only the auto-generate form. Verify the title says "Generate Tiket". Generate tickets → verify they are auto-generated with the correct prefix format. Verify CSV import UI is completely gone.
-
----
-
-#### Task 13.9: Fix Cloud Drive Media Cleanup — Delete Old Files on Replace
-- **Status**: [ ]
-- **Priority**: Medium
-- **Description**:
-  - **ROOT CAUSE**: `MediaManager.uploadMedia()` uploads new files but never deletes old ones. Old files accumulate as orphans in Google Drive.
-  - **IMPLEMENTATION**:
-    1. In `viewmodel/TicketViewModel.kt` `updateEventMedia()`, save old file IDs before uploading new files:
-       ```kotlin
-       val event = eventRepository.getEventById(eventId) ?: return@launch
-       val oldLogoId = event.logoPath  // Save old ID
-       val oldBgId = event.bgPath      // Save old ID
-       ```
-    2. After successfully uploading the new file and updating the event entity, delete the old file in a non-blocking way:
-       ```kotlin
-       // After successful upload of new logo
-       if (oldLogoId != null && finalLogoId != oldLogoId) {
-           launch {
-               try {
-                   driveService.deleteFile(oldLogoId)
-                   // Also clear local cache
-                   val cacheDir = File(context.cacheDir, "QRTix_Media_Cache")
-                   File(cacheDir, "$oldLogoId.jpg").delete()
-               } catch (e: Exception) {
-                   // Log but don't block — orphaned file is acceptable
-                   e.printStackTrace()
-               }
-           }
-       }
-       ```
-    3. Apply the same pattern for `bgPath`.
-    4. In `data/cloud/GoogleDriveService.kt`, verify that a `deleteFile(fileId: String)` method exists. If not, add one:
-       ```kotlin
-       fun deleteFile(fileId: String) {
-           driveService.files().delete(fileId).execute()
-       }
-       ```
-    5. Upload the new file FIRST, then try to delete the old one — never block the user on deletion failure.
-  - **CROSS-SYSTEM WARNING**: Ensure `deleteFile()` handles the case where the file ID is actually a local path (starts with `/`) — don't attempt to call Drive API with a local path.
-- **Affected files**: `viewmodel/TicketViewModel.kt`, `data/cloud/GoogleDriveService.kt`, `data/cloud/MediaManager.kt`
-- **Verification**: Upload a logo → note the Drive File ID. Replace with a new logo → verify old file is deleted from Drive (check Google Drive manually). Verify new logo works correctly.
-
----
 
 #### Task 13.10: Fix Workspace Creation Failure — Handle Missing Spreadsheet
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: High
 - **Description**:
   - **ROOT CAUSE**: `createAndSwitchEvent()` calls `checkEventCodeExistsInCloud()` and `checkEventNameExistsInCloud()` which require `cloudPreferences.spreadsheetId`. If null (sync failed during splash), the method throws "Cloud database belum siap".
@@ -476,13 +279,15 @@ Format template:
        ```
     4. In `data/repository/EventRepository.kt`, make `checkEventCodeExistsInCloud()` and `checkEventNameExistsInCloud()` throw a specific exception (not generic) when `spreadsheetId` is null, so callers can distinguish between "cloud not ready" and "cloud check failed".
   - **CROSS-SYSTEM WARNING**: `initializeSpreadsheet()` creates the entire Google Drive folder structure + spreadsheet. This is a heavyweight operation (~2-5 seconds). Show a loading indicator during retry.
-- **Affected files**: `viewmodel/TicketViewModel.kt`, `ui/EventSelectionDialog.kt`, `data/repository/EventRepository.kt`
+- **Affected files**: `viewmodel/TicketViewModel.kt`, `ui/DashboardScreen.kt`, `data/repository/EventRepository.kt`
 - **Verification**: Clear app data → login → before splash sync completes, try creating an event → verify retry dialog appears. Tap "Coba Lagi" → verify it initializes and succeeds. Create event successfully.
+- **Completion Notes**: Added `CloudNotReadyException` to `EventRepository.kt` and updated both `checkEventCodeExistsInCloud()` and `checkEventNameExistsInCloud()` to throw it when `spreadsheetId` is null (instead of silently returning false). Added `SpreadsheetManager` injection to `TicketViewModel` constructor. Created reusable `ensureCloudReady()` pre-flight helper that auto-initializes the spreadsheet if missing. Patched both `createAndSwitchEvent()` and `updateEventName()` with the pre-flight check and explicit `CloudNotReadyException` catch blocks. Added retry dialog state flows (`_showRetryInitDialog`, `_isInitializingCloud`), `retrySpreadsheetInit()`, and `dismissRetryDialog()` functions. Added retry `AlertDialog` UI in `DashboardScreen.kt` with loading indicator during initialization and disabled buttons to prevent duplicate requests. Verified compile with `./gradlew assembleDebug`.
+
 
 ---
 
 #### Task 13.11: Fix Distribution Error — Create Own Spreadsheet for Distribution Data
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: High
 - **Description**:
   - **ROOT CAUSE**: The app tries to `batchUpdate` an external Google Forms response spreadsheet that the authenticated user doesn't have editor access to, causing 403 PERMISSION_DENIED.
@@ -501,15 +306,16 @@ Format template:
     4. Update `DistributionScreen.kt` to handle the new error messages gracefully.
     5. Update `DistributionViewModel.kt` error handling to parse and display specific permission error messages.
   - **CROSS-SYSTEM WARNING**: This changes the data storage location for distribution data. Existing `distributionSheetId` values pointing to external sheets may need migration or graceful handling.
-- **Affected files**: `data/repository/DistributionRepository.kt`, `viewmodel/DistributionViewModel.kt`, `ui/DistributionScreen.kt`
+- **Affected files**: `data/repository/DistributionRepository.kt`, `viewmodel/DistributionViewModel.kt`, `ui/DistributionScreen.kt`, `di/AppModule.kt`
 - **Verification**: Provide an external Forms response sheet URL → verify data is read correctly. Save distribution → verify data is written to QRTix_Data spreadsheet (not external sheet). Verify no 403 error.
+- **Completion Notes**: Redesigned the distribution flow to separate read-only external sheet access from read-write internal storage. Injected `CloudPreferences` into `DistributionRepository` to access the internal `QRTix_Data` spreadsheet ID. Added dynamic tab name derivation via `getDistributionTabName(eventName)` which creates event-specific tabs (e.g., `"Distribusi_KonserABC"`) in the internal spreadsheet. Added `validateExternalSheetAccess()` method that catches 403/404 errors with specific user-friendly messages and `PermissionDeniedException` class. Removed `spreadsheetId` parameter from all write-path methods (`saveDistributionMapping`, `updateEmailStatus`, `updateSummaryRow`, `getExistingDistributionData`), replacing with `eventName` for tab resolution. Updated `DistributionViewModel` to inject `CloudPreferences`, pass `eventName` to all repository methods, and store `cloudPreferences.spreadsheetId` as `Event.distributionSheetId` (flag for distribution completion). Updated `DistributionScreen` to call `validateExternalSheetAccess()` in Step 1 before data fetch, pass `eventName` to all Step 4/5 operations, and use `activeEvent.name` for status loading. Updated `AppModule.kt` DI provider to include `CloudPreferences` in `DistributionRepository` constructor. Backward compatibility: old `distributionSheetId` values pointing to external sheets will show "Data distribusi tidak ditemukan" since the tab won't exist on the old sheet, prompting users to restart the distribution flow. Verified compile with `./gradlew assembleDebug`.
 
 ---
 
 ### Phase 13B: Per-Account Architecture Refactoring
 
 #### Task 13.12: Restructure Google Drive — Per-Account Directory Layout
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: High
 - **Description**:
   - **CONTEXT**: Currently all accounts share a flat `QRTix/System/` and `QRTix/Profiles/` folder structure. When switching accounts, `cloudPreferences.clear()` deletes the `spreadsheetId`, causing `initializeSpreadsheet()` to create a brand new empty spreadsheet.
@@ -559,11 +365,12 @@ Format template:
   - **CROSS-SYSTEM WARNING**: This is the most impactful architectural change. ALL cloud operations reference folder IDs from `CloudPreferences`. The migration must handle edge cases: what if the user has multiple accounts and the old structure has mixed data? In that case, assign all existing data to the currently logged-in account.
 - **Affected files**: `data/cloud/SpreadsheetManager.kt`, `data/cloud/CloudPreferences.kt`, `data/cloud/DriveFolderManager.kt`, `data/cloud/MediaManager.kt`, `data/cloud/BackgroundUploadManager.kt`
 - **Verification**: Fresh install → login → verify folder `QRTix/{email}/System/` and `QRTix/{email}/Profiles/` are created. Existing install → upgrade → verify migration moves folders correctly. Login with different account → verify separate folder created.
+- **Completion Notes**: Rewrote `CloudPreferences.kt` with per-email keyed storage using `activeEmail` as the routing key — all folder/spreadsheet ID accessors now read/write `"{KEY}_{email}"` patterns. When `activeEmail` is null (signed out), all accessors safely return null. Replaced `clear()` with `clearSession()` (preserves per-email data) and `clearAllData()` (nuclear option). Added migration helpers. Rewrote `SpreadsheetManager.kt` to inject `AuthPreferences` and `DriveFolderManager`, set `activeEmail` on init, run one-time `migrateOldStructure()` that moves old flat `QRTix/System/` + `QRTix/Profiles/` under `QRTix/{email}/`, then creates account-scoped folder structure with new `accountRootFolderId` property. Updated `BackgroundUploadManager.kt` to remove unsafe fallback folder creation — now relies on account-scoped `profilesFolderId`. Updated `AuthViewModel.kt` to replace `cloudPreferences.clear()` with `clearSession()` + `driveFolderManager.clearCache()`. Updated `AppModule.kt` DI provider for SpreadsheetManager. `MediaManager`, `EventBackupManager`, and `DriveFolderManager` required no code changes. Verified compile with `./gradlew assembleDebug`.
 
 ---
 
 #### Task 13.13: Per-Account Local Database & Logout Flow
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: High
 - **Description**:
   - **CONTEXT**: Currently all accounts share a single Room database (`ticketing_database`). Profile data leaks across accounts on logout/login.
@@ -629,11 +436,12 @@ Format template:
   - **DEPENDENCY**: Task 13.12 must be completed first (cloud structure must be per-account before local structure).
 - **Affected files**: `data/AppDatabase.kt`, `di/AppModule.kt`, `viewmodel/AuthViewModel.kt`, `data/EventPreferences.kt`, `data/cloud/CloudPreferences.kt`
 - **Verification**: Login as Account A → create events/tickets. Logout → login as Account B → verify Account A's data is NOT visible. Logout → login back as Account A → verify all data is intact. Switch accounts multiple times → verify no data leaks or crashes.
+- **Completion Notes**: Implemented per-account local Room databases and safe session cleanup on logout. Added `buildDatabaseName(email)` and exposed `ALL_MIGRATIONS` in `AppDatabase.kt`. Created `DatabaseProvider.kt` to dynamically manage per-account Room database instances (`qrtix_<hash>`), migrate legacy `ticketing_database` SQLite files on first upgrade without data loss, provide synchronized lifecycle handling, and route DAO accessors dynamically. Refactored `TicketRepository`, `EventRepository`, `HistoryLogRepository`, `CategoryRepository`, and `EventBackupManager` to inject `DatabaseProvider` and access DAOs via dynamic property getters. Updated `EventPreferences.kt` to store active event IDs keyed per email (`ACTIVE_EVENT_ID_<email>`) with migration for legacy preferences. Added `clearCache()` to `MediaManager.kt`. Updated `AuthViewModel.signOut()` to preserve cloud keys, clear temporary media cache, close active database connection, and reset state. Updated logout confirmation dialog text in `DashboardScreen.kt` and updated `MainActivity.kt` `onLogout` to restart the activity using `FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_CLEAR_TASK` for complete ViewModel and backstack cleanup. Verified clean compilation with `./gradlew assembleDebug`.
 
 ---
 
 #### Task 13.14: Fix Cloud Sync After Re-Login — Account-Aware Sync Flow
-- **Status**: [ ]
+- **Status**: [x]
 - **Priority**: High
 - **Description**:
   - **CONTEXT**: After Tasks 13.12 and 13.13, each account has its own Drive folder and local database. The sync flow in `SplashViewModel` must use the correct account-scoped paths.
@@ -654,10 +462,193 @@ Format template:
   - **DEPENDENCY**: Tasks 13.12 and 13.13 must be completed first.
 - **Affected files**: `viewmodel/SplashViewModel.kt`, `data/cloud/SpreadsheetManager.kt`, `data/cloud/CloudPreferences.kt`
 - **Verification**: Login as Account A → verify sync uses Account A's spreadsheet. Logout → login as Account B → verify sync uses Account B's spreadsheet (different data). Logout → re-login as Account A → verify data loads correctly without re-downloading everything.
+- **Completion Notes**: Implemented account-aware cloud synchronization flow and resilience against stale spreadsheet IDs. In `CloudPreferences.kt`, added `getSpreadsheetId(email)` and `setSpreadsheetId(email, id)` with automatic null removal, and updated keyed setters to remove null keys. In `SpreadsheetManager.kt`, updated `initializeSpreadsheet(accountEmail: String? = null)` to support explicit account targeting and auto-set `activeEmail`. In `SplashViewModel.kt`, injected `CloudPreferences`, bound `cloudPreferences.activeEmail = email`, and wrapped cloud sync in `performSyncWithRetry()` with 404 / entity-not-found detection (`isSpreadsheetNotFoundError`) that clears stale IDs and re-initializes. Updated `AuthViewModel.kt` to bind `cloudPreferences.activeEmail = email` on sign-in and pass email to `initializeSpreadsheet()`. In `MainActivity.kt`, routed successful login navigation from `LoginScreen` through `"splash"` so newly logged-in accounts immediately perform account-aware synchronization and media download before landing on Onboarding or Main Menu. Verified compile with `./gradlew assembleDebug`.
 
 ---
 
 ## COMPLETED TASKS
+
+#### Task 13.9: Fix Cloud Drive Media Cleanup — Delete Old Files on Replace
+- **Status**: [x]
+- **Priority**: Medium
+- **Description**:
+  - **ROOT CAUSE**: `MediaManager.uploadMedia()` uploads new files but never deletes old ones. Old files accumulate as orphans in Google Drive.
+  - **IMPLEMENTATION**:
+    1. In `viewmodel/TicketViewModel.kt` `updateEventMedia()`, save old file IDs before uploading new files.
+    2. After successfully uploading the new file and updating the event entity, delete the old file in a non-blocking way.
+    3. Apply the same pattern for `bgPath`.
+    4. In `data/cloud/GoogleDriveService.kt`, verify that a `deleteFile(fileId: String)` method exists. If not, add one.
+    5. Upload the new file FIRST, then try to delete the old one — never block the user on deletion failure.
+  - **CROSS-SYSTEM WARNING**: Ensure `deleteFile()` handles the case where the file ID is actually a local path (starts with `/`) — don't attempt to call Drive API with a local path.
+- **Affected files**: `viewmodel/TicketViewModel.kt`, `data/cloud/GoogleDriveService.kt`, `data/cloud/MediaManager.kt`
+- **Verification**: Upload a logo → note the Drive File ID. Replace with a new logo → verify old file is deleted from Drive (check Google Drive manually). Verify new logo works correctly.
+- **Completion Notes**: Added `deleteFile` in `GoogleDriveService` and `deleteMedia` in `MediaManager` to delete old media from Google Drive and local cache. In `TicketViewModel`, when `updateEventMedia` succeeds in replacing a logo or background, it asynchronously calls `deleteMedia` to clean up the orphaned file without blocking the UI. Verified compile with `./gradlew assembleDebug`.
+
+---
+
+#### Task 13.8: Remove Manual CSV Tab — Simplify Generator to Single Mode
+- **Status**: [x]
+- **Priority**: Medium
+- **Description**:
+  - **CONTEXT**: The "Manual CSV" tab in `GeneratorScreen` allows users to paste/import pre-existing ticket codes. Per user decision, this mode is removed — all ticket codes must be auto-generated by QRTix via the quota mode.
+  - **IMPLEMENTATION**:
+    1. In `ui/GeneratorScreen.kt`, remove the tab-related code:
+       - Remove `selectedTabIndex` state variable (line 45)
+       - Remove `tabs` list definition (line 46)
+       - Remove `codeInput`, `catInput` state variables (lines 36-37)
+       - Remove `csvLauncher` launcher (lines 167-205)
+    2. Remove the `TabRow` composable (lines 249-257).
+    3. Remove the `if (selectedTabIndex == 0)` block entirely (lines 260-288) — this is the Manual CSV input UI.
+    4. Keep only the quota mode content (previously inside `else` block at line 289+), making it the only content.
+    5. Rename the screen title from `"Generator Tiket Baru"` to `"Generate Tiket"` in the TopAppBar.
+    6. Remove the "Mode Kuota" label text — the remaining content is the default and only view.
+    7. In `executeGeneration()` (line 95), remove the `if (selectedTabIndex == 0)` vs `selectedTabIndex == 1` branching — only the quota path remains.
+    8. Remove unused imports: `com.github.doyaaaaaken.kotlincsv.dsl.csvReader`, `NumberedInputBox`.
+  - **CROSS-SYSTEM WARNING**: Ensure `executeGeneration()` still correctly handles quota-mode code generation after removing the branching logic. The quota path is `selectedTabIndex == 1` currently — after removal, it becomes the only path.
+- **Affected files**: `ui/GeneratorScreen.kt`
+- **Verification**: Open Generator → verify no tabs visible, only the auto-generate form. Verify the title says "Generate Tiket". Generate tickets → verify they are auto-generated with the correct prefix format. Verify CSV import UI is completely gone.
+- **Completion Notes**: Removed manual CSV import logic and associated states from `GeneratorScreen.kt`. Simplified the generator layout to only display the quota mode without tabs. Cleaned up branching in the generation execution flow and generation completion confirmation button. Removed unused imports. Build verified.
+
+---
+
+#### Task 13.7: Fix Category Dropdown — Always Show "Tambah Kategori Baru"
+- **Status**: [x]
+- **Priority**: Medium
+- **Description**:
+  - **ROOT CAUSE**: In `GeneratorScreen.kt`, the "+ Tambah Kategori Baru" dropdown menu item is inside the `else` block (when categories exist). When no categories exist, only "Belum ada kategori" is shown with no way to create one.
+  - **IMPLEMENTATION**:
+    1. In `ui/GeneratorScreen.kt` (around lines 335-357), restructure the dropdown menu to always show the add option:
+       ```kotlin
+       ExposedDropdownMenu(
+           expanded = quotaCategoryExpanded,
+           onDismissRequest = { quotaCategoryExpanded = false }
+       ) {
+           if (ticketCategories.isEmpty()) {
+               DropdownMenuItem(
+                   text = { Text("Belum ada kategori", color = MaterialTheme.colorScheme.error) },
+                   onClick = { quotaCategoryExpanded = false }
+               )
+           } else {
+               ticketCategories.forEach { category ->
+                   DropdownMenuItem(
+                       text = { Text("${category.categoryName} (${category.categoryCode})") },
+                       onClick = {
+                           quotaCategory = category.categoryCode
+                           quotaCategoryExpanded = false
+                       }
+                   )
+               }
+           }
+           // ALWAYS show this — moved OUTSIDE the if/else
+           Divider(modifier = Modifier.padding(vertical = 4.dp))
+           DropdownMenuItem(
+               text = { Text("+ Tambah Kategori Baru", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+               onClick = {
+                   showCategoryDialog = true
+                   quotaCategoryExpanded = false
+               }
+           )
+       }
+       ```
+    2. The `CategoryManagementDialog` opened from here should allow full management: add, rename, and delete categories.
+- **Affected files**: `ui/GeneratorScreen.kt`
+- **Verification**: Create a fresh event with no categories → open Generator → click category dropdown → verify "+ Tambah Kategori Baru" option is visible. Click it → verify dialog opens. Add a category → verify it appears in the dropdown.
+- **Completion Notes**: Restructured the `ExposedDropdownMenu` content in `GeneratorScreen.kt` by moving the `Divider` and `DropdownMenuItem` for "+ Tambah Kategori Baru" outside the `if (ticketCategories.isEmpty())` condition. It is now always visible. Updated font weight to `FontWeight.Bold` as requested. Verified code syntax.
+
+---
+
+
+#### Task 13.6: Remove "Kelola Kategori" From Dashboard & Sidebar
+- **Status**: [x]
+- **Priority**: Low
+- **Description**:
+  - **IMPLEMENTATION**:
+    1. In `ui/DashboardScreen.kt`, remove the "Kelola Kategori" item from the `secondaryButtons` list (line 472):
+       ```kotlin
+       // DELETE this line:
+       Pair("Kelola Kategori", { showCategoryDialog = true } to Icons.Default.Category),
+       ```
+    2. In `ui/DashboardScreen.kt` `SidebarContent`, remove the "Kelola Kategori" `NavigationDrawerItem` (lines 716-721):
+       ```kotlin
+       // DELETE this block:
+       NavigationDrawerItem(
+           icon = { Icon(Icons.Default.Category, contentDescription = null) },
+           label = { Text("Kelola Kategori") },
+           selected = false,
+           onClick = onNavigateToCategory
+       )
+       ```
+    3. Remove the `onNavigateToCategory` parameter from `SidebarContent` function signature if no longer used by any caller.
+    4. Clean up the `showCategoryDialog` state and `CategoryManagementDialog` from `DashboardScreen` if no longer triggered from anywhere within that screen. Keep the `CategoryManagementDialog` composable component itself — it's still used by `GeneratorScreen`.
+  - **CROSS-SYSTEM WARNING**: Category management is still accessible from `GeneratorScreen` (Task 13.7 ensures it's always available in the dropdown). Do not delete the `CategoryManagementDialog.kt` file.
+- **Affected files**: `ui/DashboardScreen.kt`
+- **Verification**: Open dashboard → verify "Kelola Kategori" button is gone from the grid. Open sidebar → verify "Kelola Kategori" item is gone. Open Generator → verify category management still works from the dropdown.
+- **Completion Notes**: Removed `Pair("Kelola Kategori", ...)` from the `secondaryButtons` list. Removed `NavigationDrawerItem` for "Kelola Kategori" from `SidebarContent`. Removed the `onNavigateToCategory` parameter from `SidebarContent` function signature and its invocation in `DashboardScreen`. Removed `showCategoryDialog` state and the associated `CategoryManagementDialog` block. Also removed `ticketCategories` state from `DashboardScreen` since it's unused now. Code edits verified.
+
+---
+
+#### Task 13.1: Fix Scan Validation — Boolean Parsing & Smart Merge Sync
+- **Status**: [x]
+- **Priority**: Critical
+- **Description**:
+  - **ROOT CAUSE**: `toBooleanStrictOrNull()` in `TicketRepository` only accepts lowercase `"true"`/`"false"`. Google Sheets API sometimes returns `"TRUE"` (uppercase), causing scanned tickets to be read as unscanned. Additionally, `syncTicketsFromCloud()` uses delete-all-then-insert, which overwrites fresh scan data with stale cloud data.
+  - **IMPLEMENTATION**:
+    1. In `data/repository/TicketRepository.kt`, replace ALL `toBooleanStrictOrNull()` calls with case-insensitive parsing:
+       ```kotlin
+       // BEFORE (broken):
+       val isScanned = row.getOrNull(3)?.toString()?.toBooleanStrictOrNull() ?: false
+       // AFTER (fixed):
+       val isScanned = row.getOrNull(3)?.toString()?.lowercase()?.toBooleanStrictOrNull() ?: false
+       ```
+       Apply this fix in **4 locations**:
+       - `validateAndScanOnline()` — line ~92 (`isScanned` parsing)
+       - `validateAndScanOnline()` — line ~96 (`isModified` parsing)
+       - `syncTicketsFromCloud()` — line ~174 (`isScanned` parsing)
+       - `syncTicketsFromCloud()` — line ~178 (`isModified` parsing)
+    2. In `validateAndScanOnline()`, after writing `isScanned=true` to Sheets, add a 100ms delay before the verification read to reduce race condition risk in multi-device scanning:
+       ```kotlin
+       // After the batchUpdate write
+       delay(100) // Let concurrent writes settle before verification
+       // Then perform the verification read
+       ```
+    3. Replace the `syncTicketsFromCloud()` delete-all-then-insert strategy with a **smart merge**:
+       ```kotlin
+       suspend fun syncTicketsFromCloud(eventId: Long) {
+           val cloudTickets = readTicketsFromSheets(eventId)
+           val localTickets = ticketDao.getAllTickets(eventId)
+           val localMap = localTickets.associateBy { it.qrContent }
+           
+           val mergedTickets = cloudTickets.map { cloudTicket ->
+               val localTicket = localMap[cloudTicket.qrContent]
+               if (localTicket != null && localTicket.isScanned && !cloudTicket.isScanned) {
+                   // Local has been scanned but cloud hasn't caught up — keep local (fresher)
+                   localTicket
+               } else if (cloudTicket.isScanned && (localTicket == null || !localTicket.isScanned)) {
+                   // Cloud was scanned (from another device) — take cloud
+                   cloudTicket
+               } else if (localTicket != null && cloudTicket.scannedAt != null && localTicket.scannedAt != null) {
+                   // Both scanned — keep the one with the earlier timestamp (first scan wins)
+                   if (localTicket.scannedAt!! <= cloudTicket.scannedAt!!) localTicket else cloudTicket
+               } else {
+                   cloudTicket // Default: trust cloud
+               }
+           }
+           
+           // Add any cloud-only tickets (new tickets from other devices)
+           ticketDao.deleteAllTickets(eventId)
+           ticketDao.insertTickets(mergedTickets)
+       }
+       ```
+    4. Audit all ID inputs/storage to ensure **uppercase enforcement**:
+       - Event codes: already `.uppercase()` at input — verify at storage and comparison
+       - Category codes: already `.uppercase()` at input — verify at storage and comparison
+       - QR content: already `.uppercase().trim()` in `processQrCode()` — verify consistency
+  - **CROSS-SYSTEM WARNING**: The smart merge logic assumes `qrContent` is the unique key per event. Verify the UNIQUE INDEX on `(qrContent, eventId)` is intact. The 100ms delay in scan verification is minimal but adds ~100ms to each scan response time.
+- **Affected files**: `data/repository/TicketRepository.kt`, `data/repository/HistoryLogRepository.kt`, `viewmodel/TicketViewModel.kt`
+- **Verification**: Scan a ticket → verify status changes to "Sudah Scan" in database. Scan same ticket again → verify "Tiket sudah discan" error. Wait for auto-sync → verify status doesn't revert. Test on two devices scanning different tickets simultaneously.
+- **Completion Notes**: Implemented case-insensitive boolean parsing (`.lowercase().toBooleanStrictOrNull()`) in `TicketRepository` (4 locations) and `HistoryLogRepository` (1 location). Added a 100ms delay after writing scan status before performing verification read to reduce concurrent scan race conditions. Implemented non-destructive smart merge in `syncTicketsFromCloud()` preserving fresher local scan state over stale cloud reads. Enforced uppercase normalization on event codes, category codes, and QR content across ViewModels and database lookups. Verified compile with `./gradlew assembleDebug`.
+
+---
 
 #### Task 12.1: Inter-Account/Inter-Device Database Transfer
 - **Status**: [x]

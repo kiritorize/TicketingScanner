@@ -49,6 +49,7 @@ fun EventProfileScreen(
 
     val ticketList by viewModel.ticketList.collectAsState()
     val categories by viewModel.ticketCategories.collectAsState()
+    val isMediaUploading by viewModel.isMediaUploading.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var editNameDialog by remember { mutableStateOf(false) }
@@ -111,7 +112,7 @@ fun EventProfileScreen(
                     .size(120.dp)
                     .clip(CircleShape)
                     .background(Color.LightGray)
-                    .clickable { logoPickerLauncher.launch("image/*") },
+                    .clickable(enabled = !isMediaUploading) { logoPickerLauncher.launch("image/*") },
                 contentAlignment = Alignment.Center
             ) {
                 if (logoBitmap != null) {
@@ -123,6 +124,17 @@ fun EventProfileScreen(
                     )
                 } else {
                     Text("Pilih Logo")
+                }
+
+                if (isMediaUploading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
                 }
             }
 
@@ -174,8 +186,16 @@ fun EventProfileScreen(
             Text("Desain Tiket", fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = { bgPickerLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
-                    Text(if (event.bgPath != null) "Ganti Background" else "Pilih Background")
+                OutlinedButton(
+                    onClick = { bgPickerLauncher.launch("image/*") }, 
+                    modifier = Modifier.weight(1f),
+                    enabled = !isMediaUploading
+                ) {
+                    if (isMediaUploading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text(if (event.bgPath != null) "Ganti Background" else "Pilih Background")
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(

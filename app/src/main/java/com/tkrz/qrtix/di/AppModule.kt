@@ -2,8 +2,11 @@ package com.tkrz.qrtix.di
 
 import android.content.Context
 import com.tkrz.qrtix.data.AppDatabase
+import com.tkrz.qrtix.data.CategoryDao
+import com.tkrz.qrtix.data.DatabaseProvider
 import com.tkrz.qrtix.data.EventDao
 import com.tkrz.qrtix.data.EventPreferences
+import com.tkrz.qrtix.data.HistoryLogDao
 import com.tkrz.qrtix.data.TicketDao
 import dagger.Module
 import dagger.Provides
@@ -18,58 +21,66 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        return AppDatabase.getDatabase(context)
+    fun provideDatabaseProvider(
+        @ApplicationContext context: Context,
+        authPreferences: com.tkrz.qrtix.data.AuthPreferences
+    ): DatabaseProvider {
+        return DatabaseProvider(context, authPreferences)
     }
 
     @Provides
     @Singleton
-    fun provideTicketDao(database: AppDatabase): TicketDao {
-        return database.ticketDao()
+    fun provideAppDatabase(databaseProvider: DatabaseProvider): AppDatabase {
+        return databaseProvider.getDatabase()
+    }
+
+    @Provides
+    fun provideTicketDao(databaseProvider: DatabaseProvider): TicketDao {
+        return databaseProvider.ticketDao
+    }
+
+    @Provides
+    fun provideEventDao(databaseProvider: DatabaseProvider): EventDao {
+        return databaseProvider.eventDao
     }
 
     @Provides
     @Singleton
-    fun provideEventDao(database: AppDatabase): EventDao {
-        return database.eventDao()
+    fun provideEventPreferences(
+        @ApplicationContext context: Context,
+        authPreferences: com.tkrz.qrtix.data.AuthPreferences
+    ): EventPreferences {
+        return EventPreferences(context, authPreferences)
     }
 
     @Provides
-    @Singleton
-    fun provideEventPreferences(@ApplicationContext context: Context): EventPreferences {
-        return EventPreferences(context)
+    fun provideHistoryLogDao(databaseProvider: DatabaseProvider): HistoryLogDao {
+        return databaseProvider.historyLogDao
     }
 
     @Provides
-    @Singleton
-    fun provideHistoryLogDao(database: AppDatabase): com.tkrz.qrtix.data.HistoryLogDao {
-        return database.historyLogDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideCategoryDao(database: AppDatabase): com.tkrz.qrtix.data.CategoryDao {
-        return database.categoryDao()
+    fun provideCategoryDao(databaseProvider: DatabaseProvider): CategoryDao {
+        return databaseProvider.categoryDao
     }
 
     @Provides
     @Singleton
     fun provideCategoryRepository(
-        categoryDao: com.tkrz.qrtix.data.CategoryDao,
+        databaseProvider: DatabaseProvider,
         sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
         cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
     ): com.tkrz.qrtix.data.repository.CategoryRepository {
-        return com.tkrz.qrtix.data.repository.CategoryRepository(categoryDao, sheetsService, cloudPreferences)
+        return com.tkrz.qrtix.data.repository.CategoryRepository(databaseProvider, sheetsService, cloudPreferences)
     }
 
     @Provides
     @Singleton
     fun provideTicketRepository(
-        ticketDao: TicketDao,
+        databaseProvider: DatabaseProvider,
         sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
         cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
     ): com.tkrz.qrtix.data.repository.TicketRepository {
-        return com.tkrz.qrtix.data.repository.TicketRepository(ticketDao, sheetsService, cloudPreferences)
+        return com.tkrz.qrtix.data.repository.TicketRepository(databaseProvider, sheetsService, cloudPreferences)
     }
 
     @Provides
@@ -78,40 +89,38 @@ object AppModule {
         driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
         driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager,
         cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
-        ticketDao: TicketDao,
+        databaseProvider: DatabaseProvider,
         @ApplicationContext context: Context
     ): com.tkrz.qrtix.data.cloud.EventBackupManager {
-        return com.tkrz.qrtix.data.cloud.EventBackupManager(driveService, driveFolderManager, cloudPreferences, ticketDao, context)
+        return com.tkrz.qrtix.data.cloud.EventBackupManager(driveService, driveFolderManager, cloudPreferences, databaseProvider, context)
     }
 
     @Provides
     @Singleton
     fun provideEventRepository(
-        eventDao: EventDao,
+        databaseProvider: DatabaseProvider,
         sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
         cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
         eventPreferences: com.tkrz.qrtix.data.EventPreferences,
-        eventBackupManager: com.tkrz.qrtix.data.cloud.EventBackupManager,
-        categoryDao: com.tkrz.qrtix.data.CategoryDao
+        eventBackupManager: com.tkrz.qrtix.data.cloud.EventBackupManager
     ): com.tkrz.qrtix.data.repository.EventRepository {
         return com.tkrz.qrtix.data.repository.EventRepository(
-            eventDao,
+            databaseProvider,
             sheetsService,
             cloudPreferences,
             eventPreferences,
-            eventBackupManager,
-            categoryDao
+            eventBackupManager
         )
     }
 
     @Provides
     @Singleton
     fun provideHistoryLogRepository(
-        historyLogDao: com.tkrz.qrtix.data.HistoryLogDao,
+        databaseProvider: DatabaseProvider,
         sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
         cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
     ): com.tkrz.qrtix.data.repository.HistoryLogRepository {
-        return com.tkrz.qrtix.data.repository.HistoryLogRepository(historyLogDao, sheetsService, cloudPreferences)
+        return com.tkrz.qrtix.data.repository.HistoryLogRepository(databaseProvider, sheetsService, cloudPreferences)
     }
 
     @Provides
@@ -152,18 +161,21 @@ object AppModule {
     fun provideSpreadsheetManager(
         cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences,
         driveService: com.tkrz.qrtix.data.cloud.GoogleDriveService,
-        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService
+        sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
+        authPreferences: com.tkrz.qrtix.data.AuthPreferences,
+        driveFolderManager: com.tkrz.qrtix.data.cloud.DriveFolderManager
     ): com.tkrz.qrtix.data.cloud.SpreadsheetManager {
-        return com.tkrz.qrtix.data.cloud.SpreadsheetManager(cloudPreferences, driveService, sheetsService)
+        return com.tkrz.qrtix.data.cloud.SpreadsheetManager(cloudPreferences, driveService, sheetsService, authPreferences, driveFolderManager)
     }
 
     @Provides
     @Singleton
     fun provideDistributionRepository(
         sheetsService: com.tkrz.qrtix.data.cloud.GoogleSheetsService,
-        ticketRepository: com.tkrz.qrtix.data.repository.TicketRepository
+        ticketRepository: com.tkrz.qrtix.data.repository.TicketRepository,
+        cloudPreferences: com.tkrz.qrtix.data.cloud.CloudPreferences
     ): com.tkrz.qrtix.data.repository.DistributionRepository {
-        return com.tkrz.qrtix.data.repository.DistributionRepository(sheetsService, ticketRepository)
+        return com.tkrz.qrtix.data.repository.DistributionRepository(sheetsService, ticketRepository, cloudPreferences)
     }
 
     @Provides
